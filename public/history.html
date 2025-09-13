@@ -41,12 +41,29 @@
             font-weight: 600;
         }
 
+        .container {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            gap: 20px;
+        }
+
+        .chart-wrapper {
+            flex: 1 1 48%;
+            height: 400px;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            background: #000;
+        }
+
         .table-wrapper {
-            max-width: 1200px;
-            margin: 20px auto;
-            overflow-x: auto;
+            flex: 1 1 48%;
+            max-height: 400px;
+            overflow-y: auto;
             border-radius: 12px;
             box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            background: var(--table-bg);
         }
 
         table {
@@ -56,19 +73,18 @@
 
         th,
         td {
-            padding: 12px 15px;
+            padding: 8px 12px;
             text-align: center;
             transition: all 0.3s ease;
+            font-size: 0.85rem;
         }
 
         th {
             background: var(--table-header);
             font-weight: 600;
-            font-size: 0.95rem;
         }
 
         tr {
-            background: var(--table-bg);
             border-bottom: 1px solid #3d3d50;
         }
 
@@ -86,15 +102,10 @@
             font-weight: 600;
         }
 
-        .signal {
-            color: var(--signal-color);
-            font-weight: 600;
-        }
-
         .badge {
             padding: 2px 6px;
             border-radius: 6px;
-            font-size: 0.75rem;
+            font-size: 0.7rem;
             background: #444;
             margin: 0 2px;
         }
@@ -132,12 +143,14 @@
             background: var(--accent-color);
         }
 
-        @media(max-width:768px) {
+        @media(max-width:1024px) {
+            .container {
+                flex-direction: column;
+            }
 
-            th,
-            td {
-                padding: 8px;
-                font-size: 0.8rem;
+            .chart-wrapper,
+            .table-wrapper {
+                flex: 1 1 100%;
             }
         }
     </style>
@@ -162,41 +175,70 @@
         </select>
     </div>
 
-    <div class="table-wrapper">
-        <h2>BTC/USDT Trades & Signals</h2>
-        <table>
-            <thead>
-                <tr>
-                    <th>TF</th>
-                    <th>Time</th>
-                    <th>Side</th>
-                    <th>Open</th>
-                    <th>Target</th>
-                    <th>Status</th>
-                    <th>P/L</th>
-                </tr>
-            </thead>
-            <tbody id="btc-history"></tbody>
-        </table>
+    <div class="container">
+        <div class="chart-wrapper" id="btc-chart"></div>
+        <div class="table-wrapper">
+            <h3 style="text-align:center;padding:10px 0;">BTC/USDT Trades & Signals</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>TF</th>
+                        <th>Time</th>
+                        <th>Side</th>
+                        <th>Open</th>
+                        <th>Target</th>
+                        <th>Status</th>
+                        <th>P/L</th>
+                    </tr>
+                </thead>
+                <tbody id="btc-history"></tbody>
+            </table>
+        </div>
     </div>
 
-    <div class="table-wrapper">
-        <h2>XAU/USDT Trades & Signals</h2>
-        <table>
-            <thead>
-                <tr>
-                    <th>TF</th>
-                    <th>Time</th>
-                    <th>Side</th>
-                    <th>Open</th>
-                    <th>Target</th>
-                    <th>Status</th>
-                    <th>P/L</th>
-                </tr>
-            </thead>
-            <tbody id="xau-history"></tbody>
-        </table>
+    <div class="container" style="margin-top:20px;">
+        <div class="chart-wrapper" id="xau-chart"></div>
+        <div class="table-wrapper">
+            <h3 style="text-align:center;padding:10px 0;">XAU/USDT Trades & Signals</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>TF</th>
+                        <th>Time</th>
+                        <th>Side</th>
+                        <th>Open</th>
+                        <th>Target</th>
+                        <th>Status</th>
+                        <th>P/L</th>
+                    </tr>
+                </thead>
+                <tbody id="xau-history"></tbody>
+            </table>
+        </div>
     </div>
+
+    <!-- TradingView Widget -->
+    <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+    <script>
+        function createWidget(containerId, symbol) {
+            new TradingView.widget({
+                autosize: true,
+                symbol: symbol,
+                interval: "5",
+                timezone: "Etc/UTC",
+                theme: "dark",
+                style: "1",
+                locale: "en",
+                toolbar_bg: "#1e1e2f",
+                enable_publishing: false,
+                allow_symbol_change: true,
+                container_id: containerId
+            });
+        }
+
+        createWidget("btc-chart", "BINANCE:BTCUSDT");
+        createWidget("xau-chart", "OANDA:XAUUSD");
+    </script>
 
     <script>
         const btcTbody = document.getElementById('btc-history');
@@ -242,8 +284,6 @@
 
         socket.on('tradeOpened', trade => {
             const tbody = trade.symbol === 'BTCUSDT' ? btcTbody : xauTbody;
-            if (symbolFilter.value !== 'all' && symbolFilter.value !== trade.symbol) return;
-            if (tfFilter.value !== 'all' && tfFilter.value !== trade.tf) return;
             trade.status = 'Open';
             trades[trade.symbol][trade.id] = renderRow(trade, tbody);
         });
