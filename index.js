@@ -15,44 +15,74 @@ const server = http.createServer(app);
 const io = new Server(server);
 const PORT = process.env.PORT || 3000;
 
-// ---------------- Socket.io events -----------------
-io.on('connection', (socket) => {
-    console.log('Client connected');
-
-    socket.on('newSignal', sig => {
-        const msg = `📊 New Signal: ${sig.symbol} ${sig.side}\nTF: ${sig.tf}\nPrice: ${sig.price.toFixed(2)}\nTarget: ${sig.target?.toFixed(2) || '-'}`;
-        sendTelegramMessage(msg);
-    });
-
-    socket.on('tradeUpdate', trade => {
-        const msg = `💹 Trade Update: ${trade.symbol} ${trade.side.toUpperCase()}\nUnrealized P/L: ${trade.unrealized.toFixed(2)}`;
-        sendTelegramMessage(msg);
-    });
-});
-
-// ---------------- Telegram -----------------
-function sendTelegramMessage(text) {
-    const token = process.env.TELEGRAM_TOKEN;
-    const chatId = process.env.TELEGRAM_CHAT_ID;
-    if (!token || !chatId) return console.error("Telegram token/chat_id missing");
-
-    axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
-        chat_id: chatId,
-        text,
-        parse_mode: "HTML"
-    })
-        .then(() => console.log("Telegram sent"))
-        .catch(err => console.error("Telegram error:", err.response?.data || err.message));
-}
-
-// ---------------- Config -----------------
+// ---------------- CONFIG -----------------
 const TIMEFRAMES = ['5m', '15m', '1h', '4h'];
 const symbols = ['BTCUSDT', 'XAUUSDT'];
 const candlesMap = {};
 const tradeHistory = { BTCUSDT: [], XAUUSDT: [] };
 const openTrades = { BTCUSDT: null, XAUUSDT: null };
+const defaultLot = 0.01; // Default lot
 
-// ---------------- Binance API -----------------
+// ---------------- Telegram -----------------
+function sendTelegramMessage(text, type = '') {
+    const token = process.env.TELEGRAM_TOKEN;
+    const chatId = process.env.TELEGRAM_CHAT_ID;
+    if (!token || !chatId) return console.error("Telegram token/chat_id missing");
+
+    const prefix = type ? `[${type}] ` : '';
+    axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
+        chat_id: chatId,
+        text: prefix + text,
+        parse_mode: "HTML"
+    })
+        .then(() => console.log("Telegram sent:", prefix + text))
+        .catch(err => console.error("Telegram error:", err.response?.data || err.message));
+}
+
+// ---------------- INITIAL LOGS -----------------
+function sendInitialTelegramLogs() {
+    sendTelegramMessage(`Server Started\nPort:${PORT}\nTime:${new Date().toISOString()}`, 'STARTUP');
+
+    // Open trades
+    Object.keys(openTrades).forEach(symbol => {
+        const t = openTrades[symbol];
+        if (t) {
+            sendTelegramMessage(
+                `${symbol.toUpperCase()} ${t.side.toUpperCase()} @${t.openPrice.toFixed(2)} TP:${t.targetPrice.toFixed(2)} SL:${t.stopLoss.toFixed(2)} Lot:${t.lotSize}`,
+                'STARTUP'
+            );
+        }
+    });
+
+    // Trade history
+    Object.keys(tradeHistory).forEach(symbol => {
+        tradeHistory[symbol].forEach(trade => {
+            sendTelegramMessage(
+                `${symbol.toUpperCase()} ${trade.side.toUpperCase()} Result:${trade.result?.toFixed(2)} Open:${trade.openPrice.toFixed(2)} Close:${trade.closePrice?.toFixed(2)} Lot:${trade.lotSize}`,
+                'STARTUP'
+            );
+        });
+    });
+
+    sendTelegramMessage(`Live Demo Active\nSymbols: ${symbols.join(', ')}\nTimeframes: ${TIMEFRAMES.join(', ')}`, 'STARTUP');
+}
+
+// ---------------- SOCKET.IO -----------------
+io.on('connection', (socket) => {
+    console.log('Client connected');
+
+    socket.on('newSignal', sig => {
+        const msg = `New Signal: ${sig.symbol} ${sig.side}\nTF: ${sig.tf}\nPrice: ${sig.price.toFixed(2)}\nTarget: ${sig.target?.toFixed(2) || '-'}`;
+        sendTelegramMessage(msg, 'LIVE');
+    });
+
+    socket.on('tradeUpdate', trade => {
+        const msg = `Trade Update: ${trade.symbol} ${trade.side.toUpperCase()}\nUnrealized P/L: ${trade.unrealized.toFixed(2)}`;
+        sendTelegramMessage(msg, 'LIVE');
+    });
+});
+
+// ---------------- FETCH CANDLES -----------------
 async function fetchCandles(symbol, interval = '1h', limit = 200) {
     try {
         const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
@@ -71,17 +101,18 @@ async function fetchCandles(symbol, interval = '1h', limit = 200) {
     }
 }
 
-// ---------------- Trade Handler -----------------
+// ---------------- TRADE HANDLER -----------------
 function handleTrade(symbol, latestSignal, atr) {
     const openTrade = openTrades[symbol];
     if (!latestSignal) return;
 
-    const tpMultiplier = latestSignal.sniperBuy || latestSignal.sniperSell ? 2 : 1; // Sniper lebih agresif
-    const side = latestSignal.sniperBuy ? 'buy' : latestSignal.sniperSell ? 'sell' : latestSignal.buySignal ? 'buy' : 'sell';
+    const lotSize = defaultLot;
+    // Side: 'Buy'/'Sell' (frontend expects capitalized)
+    const side = latestSignal.sniperBuy ? 'Buy' : latestSignal.sniperSell ? 'Sell' : latestSignal.buySignal ? 'Buy' : 'Sell';
     const openPrice = latestSignal.price;
-    const targetPrice = side === 'buy' ? openPrice + atr * tpMultiplier : openPrice - atr * tpMultiplier;
+    const stopLoss = side === 'Buy' ? openPrice - atr : openPrice + atr;
+    const targetPrice = side === 'Buy' ? openPrice + atr * 2 : openPrice - atr * 2;
 
-    // Buka trade baru
     if (!openTrade) {
         const tradeId = Date.now();
         openTrades[symbol] = {
@@ -92,50 +123,53 @@ function handleTrade(symbol, latestSignal, atr) {
             side,
             openPrice,
             targetPrice,
-            unrealized: 0
+            stopLoss,
+            unrealized: 0,
+            lotSize
         };
         io.emit('tradeOpened', openTrades[symbol]);
-        sendTelegramMessage(`💰 Open Trade ${symbol.toUpperCase()} ${side.toUpperCase()} at ${openPrice.toFixed(2)} TP: ${targetPrice.toFixed(2)}`);
+        sendTelegramMessage(
+            `Open Trade ${symbol.toUpperCase()} ${side} @${openPrice.toFixed(2)} TP:${targetPrice.toFixed(2)} SL:${stopLoss.toFixed(2)} Lot:${lotSize}`,
+            'LIVE'
+        );
         return;
     }
 
-    // Update trade terbuka
+    // Update unrealized P/L
     const latestPrice = latestSignal.price;
-    openTrade.unrealized = openTrade.side === 'buy' ? latestPrice - openTrade.openPrice : openTrade.openPrice - latestPrice;
+    openTrade.unrealized = openTrade.side === 'Buy' ? latestPrice - openTrade.openPrice : openTrade.openPrice - latestPrice;
 
-    // Tutup trade jika TP tercapai
-    if ((openTrade.side === 'buy' && latestPrice >= openTrade.targetPrice) ||
-        (openTrade.side === 'sell' && latestPrice <= openTrade.targetPrice)) {
+    // Close if TP or SL reached
+    if ((openTrade.side === 'Buy' && (latestPrice >= openTrade.targetPrice || latestPrice <= openTrade.stopLoss)) ||
+        (openTrade.side === 'Sell' && (latestPrice <= openTrade.targetPrice || latestPrice >= openTrade.stopLoss))) {
 
         openTrade.closePrice = latestPrice;
         openTrade.result = openTrade.unrealized;
         tradeHistory[symbol].push(openTrade);
         io.emit('tradeClosed', openTrade);
-        sendTelegramMessage(`✅ Trade Closed ${symbol.toUpperCase()} Result: ${openTrade.result.toFixed(2)}`);
+        sendTelegramMessage(
+            `Trade Closed ${symbol.toUpperCase()} Result:${openTrade.result.toFixed(2)} Open:${openTrade.openPrice.toFixed(2)} Close:${openTrade.closePrice.toFixed(2)} Lot:${openTrade.lotSize}`,
+            'CLOSED'
+        );
         openTrades[symbol] = null;
     }
 }
 
-// ---------------- Multi-timeframe Processor -----------------
+// ---------------- MULTI-TF PROCESSOR -----------------
 async function processMultiTF(symbol) {
     candlesMap[symbol] = {};
-
-    // Ambil candles semua TF
     for (const tf of TIMEFRAMES) {
         candlesMap[symbol][tf] = await fetchCandles(symbol, tf);
     }
 
-    // Generate signals per TF
     const signalsPerTF = {};
     for (const tf of TIMEFRAMES) {
         signalsPerTF[tf] = generateSignals(candlesMap[symbol][tf]);
     }
 
-    // Trend filter: 1h & 4h
     const trend1h = signalsPerTF['1h'].slice(-1)[0]?.trend;
     const trend4h = signalsPerTF['4h'].slice(-1)[0]?.trend;
 
-    // Process signals 5m & 15m
     ['5m', '15m'].forEach(tf => {
         const latest = signalsPerTF[tf].slice(-1)[0];
         if (!latest) return;
@@ -152,21 +186,30 @@ async function processMultiTF(symbol) {
         const trendOk = (latest.sniperBuy && trend1h === 1 && trend4h === 1) ||
             (latest.sniperSell && trend1h === -1 && trend4h === -1);
 
-        if (trendOk) {
-            handleTrade(symbol, latest, latestATR);
+        if (trendOk) handleTrade(symbol, latest, latestATR);
 
+        if (trendOk) {
+            // Lengkapi field agar sesuai frontend
+            const side = latest.sniperBuy ? 'Buy' : 'Sell';
+            const openPrice = latest.price;
+            const stopLoss = side === 'Buy' ? openPrice - latestATR : openPrice + latestATR;
+            const targetPrice = side === 'Buy' ? openPrice + latestATR * 2 : openPrice - latestATR * 2;
             io.emit('newSignal', {
                 symbol,
                 tf,
                 time: latest.time,
-                side: latest.sniperBuy ? 'Buy' : 'Sell',
+                side,
+                openPrice,
+                stopLoss,
+                targetPrice,
                 price: latest.price,
-                target: latest.price + (latest.sniperBuy ? latestATR * 2 : -latestATR * 2)
+                lotSize: defaultLot,
+                result: null,
+                unrealized: null
             });
         }
     });
 
-    // Update open trade unrealized P/L
     const openTrade = openTrades[symbol];
     if (openTrade) {
         const latestPrice = signalsPerTF['5m'].slice(-1)[0]?.price || openTrade.openPrice;
@@ -175,36 +218,30 @@ async function processMultiTF(symbol) {
     }
 }
 
-// ---------------- Live Demo -----------------
+// ---------------- LIVE DEMO -----------------
 function startLiveDemo() {
+    symbols.forEach(s => processMultiTF(s));
     setInterval(() => symbols.forEach(s => processMultiTF(s)), 60 * 1000);
 }
 
-// ---------------- Routes -----------------
+// ---------------- ROUTES -----------------
 app.get('/', (req, res) => res.json({ ok: true, msg: 'BOZZ TRADE Live Demo' }));
 app.get('/start-live', (req, res) => { startLiveDemo(); res.json({ ok: true, msg: 'Live demo started' }); });
-app.get('/api/history/:symbol', (req, res) => {
-    const s = req.params.symbol.toUpperCase();
-    res.json(tradeHistory[s] || []);
-});
-app.get('/history', (req, res) => res.sendFile(__dirname + '/public/history.html'));
+app.get('/api/history/:symbol', (req, res) => { const s = req.params.symbol.toUpperCase(); res.json(tradeHistory[s] || []); });
 
-// ---------------- Start Server -----------------
+// ---------------- SERVER -----------------
 server.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
-    sendTelegramMessage(`🚀 <b>Server Started</b>\nPort: ${PORT}\nTime: ${new Date().toISOString()}`);
+    sendInitialTelegramLogs();
 });
 
-// ---------------- Exit / Crash -----------------
+// ---------------- EXIT HANDLER -----------------
 function handleExit(err) {
-    const msg = err
-        ? `⚠️ <b>Server Crashed</b>\nError: ${err.message}\nTime: ${new Date().toISOString()}`
-        : `⚠️ <b>Server Stopped</b>\nTime: ${new Date().toISOString()}`;
-    sendTelegramMessage(msg);
+    const msg = err ? `Server Crashed\nError: ${err.message}\nTime: ${new Date().toISOString()}` : `Server Stopped\nTime: ${new Date().toISOString()}`;
+    sendTelegramMessage(msg, 'ERROR');
     console.log(msg);
     process.exit(err ? 1 : 0);
 }
-
 process.on('exit', () => handleExit());
 process.on('SIGINT', () => handleExit());
 process.on('uncaughtException', err => handleExit(err));

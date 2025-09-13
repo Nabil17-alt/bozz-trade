@@ -41,85 +41,6 @@
             font-weight: 600;
         }
 
-        .container {
-            display: flex;
-            flex-wrap: wrap;
-            justify-content: space-between;
-            gap: 20px;
-        }
-
-        .chart-wrapper {
-            flex: 1 1 48%;
-            height: 400px;
-            border-radius: 12px;
-            overflow: hidden;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-            background: #000;
-        }
-
-        .table-wrapper {
-            flex: 1 1 48%;
-            max-height: 400px;
-            overflow-y: auto;
-            border-radius: 12px;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-            background: var(--table-bg);
-        }
-
-        table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-
-        th,
-        td {
-            padding: 8px 12px;
-            text-align: center;
-            transition: all 0.3s ease;
-            font-size: 0.85rem;
-        }
-
-        th {
-            background: var(--table-header);
-            font-weight: 600;
-        }
-
-        tr {
-            border-bottom: 1px solid #3d3d50;
-        }
-
-        tr:hover {
-            background: rgba(78, 154, 241, 0.1);
-        }
-
-        .profit {
-            color: var(--profit-color);
-            font-weight: 600;
-        }
-
-        .loss {
-            color: var(--loss-color);
-            font-weight: 600;
-        }
-
-        .badge {
-            padding: 2px 6px;
-            border-radius: 6px;
-            font-size: 0.7rem;
-            background: #444;
-            margin: 0 2px;
-        }
-
-        .badge.buy {
-            background: var(--buy-color);
-            color: #fff;
-        }
-
-        .badge.sell {
-            background: var(--sell-color);
-            color: #fff;
-        }
-
         .filter-bar {
             display: flex;
             justify-content: center;
@@ -143,6 +64,108 @@
             background: var(--accent-color);
         }
 
+        .container {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            gap: 20px;
+        }
+
+        .chart-wrapper {
+            flex: 1 1 48%;
+            height: 400px;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            background: #000;
+        }
+
+        .table-wrapper {
+            flex: 1 1 48%;
+            max-height: 400px;
+            overflow-y: auto;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            background: var(--table-bg);
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .table-wrapper h3 {
+            text-align: center;
+            padding: 10px 0;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+        }
+
+        thead tr {
+            position: sticky;
+            top: 0;
+            background: var(--table-header);
+            z-index: 2;
+        }
+
+        th,
+        td {
+            padding: 8px 10px;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+
+        tr {
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            transition: background 0.3s, transform 0.2s;
+        }
+
+        tr:hover {
+            background: rgba(78, 154, 241, 0.1);
+        }
+
+        tr.new-trade {
+            animation: highlight 1s ease;
+        }
+
+        @keyframes highlight {
+            0% {
+                background: rgba(78, 154, 241, 0.2);
+            }
+
+            100% {
+                background: transparent;
+            }
+        }
+
+        .profit {
+            color: var(--profit-color);
+            font-weight: 600;
+        }
+
+        .loss {
+            color: var(--loss-color);
+            font-weight: 600;
+        }
+
+        .badge {
+            padding: 2px 6px;
+            border-radius: 6px;
+            font-size: 0.7rem;
+            margin: 0 2px;
+            font-weight: 600;
+        }
+
+        .badge.buy {
+            background: var(--buy-color);
+            color: #fff;
+        }
+
+        .badge.sell {
+            background: var(--sell-color);
+            color: #fff;
+        }
+
         @media(max-width:1024px) {
             .container {
                 flex-direction: column;
@@ -157,7 +180,6 @@
 </head>
 
 <body>
-
     <h2>BOZZ TRADE Live Demo</h2>
 
     <div class="filter-bar">
@@ -178,15 +200,17 @@
     <div class="container">
         <div class="chart-wrapper" id="btc-chart"></div>
         <div class="table-wrapper">
-            <h3 style="text-align:center;padding:10px 0;">BTC/USDT Trades & Signals</h3>
+            <h3>BTC/USDT Trades & Signals</h3>
             <table>
                 <thead>
                     <tr>
                         <th>TF</th>
                         <th>Time</th>
                         <th>Side</th>
+                        <th>Lot</th>
                         <th>Open</th>
-                        <th>Target</th>
+                        <th>SL</th>
+                        <th>TP</th>
                         <th>Status</th>
                         <th>P/L</th>
                     </tr>
@@ -199,15 +223,17 @@
     <div class="container" style="margin-top:20px;">
         <div class="chart-wrapper" id="xau-chart"></div>
         <div class="table-wrapper">
-            <h3 style="text-align:center;padding:10px 0;">XAU/USDT Trades & Signals</h3>
+            <h3>XAU/USDT Trades & Signals</h3>
             <table>
                 <thead>
                     <tr>
                         <th>TF</th>
                         <th>Time</th>
                         <th>Side</th>
+                        <th>Lot</th>
                         <th>Open</th>
-                        <th>Target</th>
+                        <th>SL</th>
+                        <th>TP</th>
                         <th>Status</th>
                         <th>P/L</th>
                     </tr>
@@ -252,8 +278,20 @@
         function renderRow(trade, tbody) {
             const row = document.createElement('tr');
             row.id = `${trade.symbol}-${trade.id || trade.time}`;
+            row.classList.add('new-trade');
+            setTimeout(() => row.classList.remove('new-trade'), 1000);
+
             const sideBadge = `<span class="badge ${trade.side === 'Buy' ? 'buy' : 'sell'}">${trade.side}</span>`;
-            row.innerHTML = `<td>${trade.tf}</td><td>${trade.time}</td><td>${sideBadge}</td><td>${trade.openPrice.toFixed(2)}</td><td>${trade.targetPrice?.toFixed(2) || '-'}</td><td>${trade.status}</td><td class="${trade.result >= 0 ? 'profit' : 'loss'}">${trade.result?.toFixed(2) || trade.unrealized?.toFixed(2) || '-'}</td>`;
+            row.innerHTML = `
+                <td>${trade.tf}</td>
+                <td>${trade.time}</td>
+                <td>${sideBadge}</td>
+                <td>${trade.lotSize}</td>
+                <td>${trade.openPrice.toFixed(2)}</td>
+                <td>${trade.stopLoss?.toFixed(2) || '-'}</td>
+                <td>${trade.targetPrice?.toFixed(2) || '-'}</td>
+                <td>${trade.status || 'Open'}</td>
+                <td class="${trade.result >= 0 ? 'profit' : 'loss'}">${trade.result?.toFixed(2) || trade.unrealized?.toFixed(2) || '-'}</td>`;
             tbody.prepend(row);
             return row;
         }
@@ -264,8 +302,6 @@
                 const tbody = symbol === 'BTCUSDT' ? btcTbody : xauTbody;
                 data.forEach(trade => {
                     trade.symbol = symbol;
-                    trade.tf = trade.tf || '5m';
-                    trade.status = 'Closed';
                     renderRow(trade, tbody);
                 });
             });
@@ -276,22 +312,18 @@
             const tbody = sig.symbol === 'BTCUSDT' ? btcTbody : xauTbody;
             if (symbolFilter.value !== 'all' && symbolFilter.value !== sig.symbol) return;
             if (tfFilter.value !== 'all' && tfFilter.value !== sig.tf) return;
-            sig.symbol = sig.symbol;
-            sig.tf = sig.tf;
-            sig.status = 'Signal';
             renderRow(sig, tbody);
         });
 
         socket.on('tradeOpened', trade => {
             const tbody = trade.symbol === 'BTCUSDT' ? btcTbody : xauTbody;
-            trade.status = 'Open';
             trades[trade.symbol][trade.id] = renderRow(trade, tbody);
         });
 
         socket.on('tradeUpdate', trade => {
             const row = trades[trade.symbol][trade.id];
             if (row) {
-                const plCell = row.cells[6];
+                const plCell = row.cells[8];
                 plCell.textContent = trade.unrealized.toFixed(2);
                 plCell.className = trade.unrealized >= 0 ? 'profit' : 'loss';
             }
@@ -300,12 +332,34 @@
         socket.on('tradeClosed', trade => {
             const row = trades[trade.symbol][trade.id];
             if (row) {
-                row.cells[5].textContent = 'Closed';
-                const plCell = row.cells[6];
+                row.cells[7].textContent = 'Closed';
+                const plCell = row.cells[8];
                 plCell.textContent = trade.result.toFixed(2);
                 plCell.className = trade.result >= 0 ? 'profit' : 'loss';
             }
         });
+
+        // Filters
+        symbolFilter.addEventListener('change', () => {
+            updateTableFilter();
+        });
+        tfFilter.addEventListener('change', () => {
+            updateTableFilter();
+        });
+
+        function updateTableFilter() {
+            ['BTCUSDT', 'XAUUSDT'].forEach(symbol => {
+                const tbody = symbol === 'BTCUSDT' ? btcTbody : xauTbody;
+                Array.from(tbody.children).forEach(row => {
+                    const tf = row.cells[0].textContent;
+                    row.style.display =
+                        (symbolFilter.value === 'all' || symbolFilter.value === symbol) &&
+                            (tfFilter.value === 'all' || tfFilter.value === tf)
+                            ? ''
+                            : 'none';
+                });
+            });
+        }
     </script>
 </body>
 
