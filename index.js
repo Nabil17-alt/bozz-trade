@@ -28,43 +28,69 @@ function sendTelegramMessage(text, type = '') {
     const token = process.env.TELEGRAM_TOKEN;
     const chatId = process.env.TELEGRAM_CHAT_ID;
     if (!token || !chatId) return console.error("Telegram token/chat_id missing");
-
-    const prefix = type ? `[${type}] ` : '';
     axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
         chat_id: chatId,
-        text: prefix + text,
+        text,
         parse_mode: "HTML"
     })
-        .then(() => console.log("Telegram sent:", prefix + text))
+        .then(() => console.log("Telegram sent:"))
         .catch(err => console.error("Telegram error:", err.response?.data || err.message));
+}
+
+function formatNumber(n) {
+    return n === undefined || n === null ? '-' : Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function formatDate(dt) {
+    if (!dt) return '-';
+    const d = new Date(dt);
+    if (isNaN(d)) return dt;
+    return d.toLocaleString('en-GB', { hour12: false });
+}
+
+function formatSide(side) {
+    if (!side) return '-';
+    return side.toUpperCase() === 'BUY' ? '<b>BUY</b>' : '<b>SELL</b>';
+}
+
+function telegramMsg(type, data = {}) {
+    switch (type) {
+        case 'STARTUP':
+            return `🚀 <b>Server Started</b>\n<b>Port:</b> ${data.port || '-'}\n<b>Time:</b> ${formatDate(data.time)}`;
+        case 'OPEN':
+            return `💰 <b>Open Trade</b>\n<b>Symbol:</b> ${data.symbol || '-'}\n<b>Side:</b> ${formatSide(data.side)}\n<b>Lot:</b> ${formatNumber(data.lotSize)}\n<b>Open:</b> ${formatNumber(data.openPrice)}\n<b>TP:</b> ${formatNumber(data.targetPrice)}\n<b>SL:</b> ${formatNumber(data.stopLoss)}\n<b>Time:</b> ${formatDate(data.time)}`;
+        case 'CLOSED':
+            return `✅ <b>Trade Closed</b>\n<b>Symbol:</b> ${data.symbol || '-'}\n<b>Side:</b> ${formatSide(data.side)}\n<b>Lot:</b> ${formatNumber(data.lotSize)}\n<b>Open:</b> ${formatNumber(data.openPrice)}\n<b>Close:</b> ${formatNumber(data.closePrice)}\n<b>P/L:</b> <b>${data.result >= 0 ? '+' : ''}${formatNumber(data.result)}</b>\n<b>Time:</b> ${formatDate(data.time)}`;
+        case 'SIGNAL':
+            return `📊 <b>New Signal</b>\n<b>Symbol:</b> ${data.symbol || '-'}\n<b>TF:</b> ${data.tf || '-'}\n<b>Side:</b> ${formatSide(data.side)}\n<b>Price:</b> ${formatNumber(data.openPrice || data.price)}\n<b>TP:</b> ${formatNumber(data.targetPrice)}\n<b>SL:</b> ${formatNumber(data.stopLoss)}\n<b>Lot:</b> ${formatNumber(data.lotSize)}\n<b>Time:</b> ${formatDate(data.time)}`;
+        case 'UPDATE':
+            return `🔄 <b>Trade Update</b>\n<b>Symbol:</b> ${data.symbol || '-'}\n<b>Side:</b> ${formatSide(data.side)}\n<b>Unrealized P/L:</b> ${data.unrealized >= 0 ? '+' : ''}${formatNumber(data.unrealized)}\n<b>Time:</b> ${formatDate(data.time)}`;
+        case 'ERROR':
+            return `❌ <b>Server Crashed</b>\n<b>Error:</b> <i>${data.error || '-'}</i>\n<b>Time:</b> ${formatDate(data.time)}`;
+        case 'STOP':
+            return `⚠️ <b>Server Stopped</b>\n<b>Time:</b> ${formatDate(data.time)}`;
+        default:
+            return '';
+    }
 }
 
 // ---------------- INITIAL LOGS -----------------
 function sendInitialTelegramLogs() {
-    sendTelegramMessage(`Server Started\nPort:${PORT}\nTime:${new Date().toISOString()}`, 'STARTUP');
-
+    sendTelegramMessage(telegramMsg('STARTUP', { port: PORT, time: new Date() }));
     // Open trades
     Object.keys(openTrades).forEach(symbol => {
         const t = openTrades[symbol];
         if (t) {
-            sendTelegramMessage(
-                `${symbol.toUpperCase()} ${t.side.toUpperCase()} @${t.openPrice.toFixed(2)} TP:${t.targetPrice.toFixed(2)} SL:${t.stopLoss.toFixed(2)} Lot:${t.lotSize}`,
-                'STARTUP'
-            );
+            sendTelegramMessage(telegramMsg('OPEN', t));
         }
     });
-
     // Trade history
     Object.keys(tradeHistory).forEach(symbol => {
         tradeHistory[symbol].forEach(trade => {
-            sendTelegramMessage(
-                `${symbol.toUpperCase()} ${trade.side.toUpperCase()} Result:${trade.result?.toFixed(2)} Open:${trade.openPrice.toFixed(2)} Close:${trade.closePrice?.toFixed(2)} Lot:${trade.lotSize}`,
-                'STARTUP'
-            );
+            sendTelegramMessage(telegramMsg('CLOSED', trade));
         });
     });
-
-    sendTelegramMessage(`Live Demo Active\nSymbols: ${symbols.join(', ')}\nTimeframes: ${TIMEFRAMES.join(', ')}`, 'STARTUP');
+    sendTelegramMessage(`🟢 <b>Live Demo Active</b>\n<b>Symbols:</b> ${symbols.join(', ')}\n<b>Timeframes:</b> ${TIMEFRAMES.join(', ')}`);
 }
 
 // ---------------- SOCKET.IO -----------------
@@ -72,13 +98,11 @@ io.on('connection', (socket) => {
     console.log('Client connected');
 
     socket.on('newSignal', sig => {
-        const msg = `New Signal: ${sig.symbol} ${sig.side}\nTF: ${sig.tf}\nPrice: ${sig.price.toFixed(2)}\nTarget: ${sig.target?.toFixed(2) || '-'}`;
-        sendTelegramMessage(msg, 'LIVE');
+        sendTelegramMessage(telegramMsg('SIGNAL', sig));
     });
 
     socket.on('tradeUpdate', trade => {
-        const msg = `Trade Update: ${trade.symbol} ${trade.side.toUpperCase()}\nUnrealized P/L: ${trade.unrealized.toFixed(2)}`;
-        sendTelegramMessage(msg, 'LIVE');
+        sendTelegramMessage(telegramMsg('UPDATE', trade));
     });
 });
 
@@ -128,10 +152,7 @@ function handleTrade(symbol, latestSignal, atr) {
             lotSize
         };
         io.emit('tradeOpened', openTrades[symbol]);
-        sendTelegramMessage(
-            `Open Trade ${symbol.toUpperCase()} ${side} @${openPrice.toFixed(2)} TP:${targetPrice.toFixed(2)} SL:${stopLoss.toFixed(2)} Lot:${lotSize}`,
-            'LIVE'
-        );
+        sendTelegramMessage(telegramMsg('OPEN', openTrades[symbol]));
         return;
     }
 
@@ -142,15 +163,11 @@ function handleTrade(symbol, latestSignal, atr) {
     // Close if TP or SL reached
     if ((openTrade.side === 'Buy' && (latestPrice >= openTrade.targetPrice || latestPrice <= openTrade.stopLoss)) ||
         (openTrade.side === 'Sell' && (latestPrice <= openTrade.targetPrice || latestPrice >= openTrade.stopLoss))) {
-
         openTrade.closePrice = latestPrice;
         openTrade.result = openTrade.unrealized;
         tradeHistory[symbol].push(openTrade);
         io.emit('tradeClosed', openTrade);
-        sendTelegramMessage(
-            `Trade Closed ${symbol.toUpperCase()} Result:${openTrade.result.toFixed(2)} Open:${openTrade.openPrice.toFixed(2)} Close:${openTrade.closePrice.toFixed(2)} Lot:${openTrade.lotSize}`,
-            'CLOSED'
-        );
+        sendTelegramMessage(telegramMsg('CLOSED', openTrade));
         openTrades[symbol] = null;
     }
 }
@@ -239,9 +256,13 @@ server.listen(PORT, () => {
 
 // ---------------- EXIT HANDLER -----------------
 function handleExit(err) {
-    const msg = err ? `Server Crashed\nError: ${err.message}\nTime: ${new Date().toISOString()}` : `Server Stopped\nTime: ${new Date().toISOString()}`;
-    sendTelegramMessage(msg, 'ERROR');
-    console.log(msg);
+    const now = new Date();
+    if (err) {
+        sendTelegramMessage(telegramMsg('ERROR', { error: err.message, time: now }));
+        console.log(err);
+    } else {
+        sendTelegramMessage(telegramMsg('STOP', { time: now }));
+    }
     process.exit(err ? 1 : 0);
 }
 process.on('exit', () => handleExit());
