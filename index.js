@@ -227,7 +227,9 @@ function startLiveDemo() {
 // ---------------- ROUTES -----------------
 app.get('/', (req, res) => res.json({ ok: true, msg: 'BOZZ TRADE Live Demo' }));
 app.get('/start-live', (req, res) => { startLiveDemo(); res.json({ ok: true, msg: 'Live demo started' }); });
+
 app.get('/api/history/:symbol', (req, res) => { const s = req.params.symbol.toUpperCase(); res.json(tradeHistory[s] || []); });
+app.get('/history', (req, res) => res.sendFile(__dirname + '/public/history.html'));
 
 // ---------------- SERVER -----------------
 server.listen(PORT, () => {
