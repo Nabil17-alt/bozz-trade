@@ -15,6 +15,21 @@ const server = http.createServer(app);
 const io = new Server(server);
 const PORT = process.env.PORT || 3000;
 
+// ---------------- Socket.io events -----------------
+io.on('connection', (socket) => {
+    console.log('Client connected');
+
+    socket.on('newSignal', sig => {
+        const msg = `📊 New Signal: ${sig.symbol} ${sig.side}\nTF: ${sig.tf}\nPrice: ${sig.price.toFixed(2)}\nTarget: ${sig.target?.toFixed(2) || '-'}`;
+        sendTelegramMessage(msg);
+    });
+
+    socket.on('tradeUpdate', trade => {
+        const msg = `💹 Trade Update: ${trade.symbol} ${trade.side.toUpperCase()}\nUnrealized P/L: ${trade.unrealized.toFixed(2)}`;
+        sendTelegramMessage(msg);
+    });
+});
+
 // ---------------- Telegram -----------------
 function sendTelegramMessage(text) {
     const token = process.env.TELEGRAM_TOKEN;
@@ -26,16 +41,14 @@ function sendTelegramMessage(text) {
         text,
         parse_mode: "HTML"
     })
-        .then(res => console.log("Telegram sent"))
+        .then(() => console.log("Telegram sent"))
         .catch(err => console.error("Telegram error:", err.response?.data || err.message));
 }
 
-// ---------------- Multi-timeframe -----------------
+// ---------------- Config -----------------
 const TIMEFRAMES = ['5m', '15m', '1h', '4h'];
 const symbols = ['BTCUSDT', 'XAUUSDT'];
 const candlesMap = {};
-
-// trade history per symbol
 const tradeHistory = { BTCUSDT: [], XAUUSDT: [] };
 const openTrades = { BTCUSDT: null, XAUUSDT: null };
 
@@ -58,79 +71,113 @@ async function fetchCandles(symbol, interval = '1h', limit = 200) {
     }
 }
 
-// ---------------- Process Signals -----------------
+// ---------------- Trade Handler -----------------
+function handleTrade(symbol, latestSignal, atr) {
+    const openTrade = openTrades[symbol];
+    if (!latestSignal) return;
+
+    const tpMultiplier = latestSignal.sniperBuy || latestSignal.sniperSell ? 2 : 1; // Sniper lebih agresif
+    const side = latestSignal.sniperBuy ? 'buy' : latestSignal.sniperSell ? 'sell' : latestSignal.buySignal ? 'buy' : 'sell';
+    const openPrice = latestSignal.price;
+    const targetPrice = side === 'buy' ? openPrice + atr * tpMultiplier : openPrice - atr * tpMultiplier;
+
+    // Buka trade baru
+    if (!openTrade) {
+        const tradeId = Date.now();
+        openTrades[symbol] = {
+            id: tradeId,
+            symbol,
+            tf: latestSignal.tf,
+            time: latestSignal.time,
+            side,
+            openPrice,
+            targetPrice,
+            unrealized: 0
+        };
+        io.emit('tradeOpened', openTrades[symbol]);
+        sendTelegramMessage(`💰 Open Trade ${symbol.toUpperCase()} ${side.toUpperCase()} at ${openPrice.toFixed(2)} TP: ${targetPrice.toFixed(2)}`);
+        return;
+    }
+
+    // Update trade terbuka
+    const latestPrice = latestSignal.price;
+    openTrade.unrealized = openTrade.side === 'buy' ? latestPrice - openTrade.openPrice : openTrade.openPrice - latestPrice;
+
+    // Tutup trade jika TP tercapai
+    if ((openTrade.side === 'buy' && latestPrice >= openTrade.targetPrice) ||
+        (openTrade.side === 'sell' && latestPrice <= openTrade.targetPrice)) {
+
+        openTrade.closePrice = latestPrice;
+        openTrade.result = openTrade.unrealized;
+        tradeHistory[symbol].push(openTrade);
+        io.emit('tradeClosed', openTrade);
+        sendTelegramMessage(`✅ Trade Closed ${symbol.toUpperCase()} Result: ${openTrade.result.toFixed(2)}`);
+        openTrades[symbol] = null;
+    }
+}
+
+// ---------------- Multi-timeframe Processor -----------------
 async function processMultiTF(symbol) {
-    // Ambil semua candles
     candlesMap[symbol] = {};
+
+    // Ambil candles semua TF
     for (const tf of TIMEFRAMES) {
         candlesMap[symbol][tf] = await fetchCandles(symbol, tf);
     }
 
-    // Hitung signals per timeframe
-    const signals = {};
+    // Generate signals per TF
+    const signalsPerTF = {};
     for (const tf of TIMEFRAMES) {
-        signals[tf] = generateSignals(candlesMap[symbol][tf]);
+        signalsPerTF[tf] = generateSignals(candlesMap[symbol][tf]);
     }
 
-    // Trend filter 1h & 4h
-    const trend1h = signals['1h'].slice(-1)[0]?.trend;
-    const trend4h = signals['4h'].slice(-1)[0]?.trend;
+    // Trend filter: 1h & 4h
+    const trend1h = signalsPerTF['1h'].slice(-1)[0]?.trend;
+    const trend4h = signalsPerTF['4h'].slice(-1)[0]?.trend;
 
-    // Entry 5m & 15m
+    // Process signals 5m & 15m
     ['5m', '15m'].forEach(tf => {
-        const latest = signals[tf].slice(-1)[0];
+        const latest = signalsPerTF[tf].slice(-1)[0];
         if (!latest) return;
+
+        const atrArr = computeATR(
+            candlesMap[symbol][tf].map(c => c.high),
+            candlesMap[symbol][tf].map(c => c.low),
+            candlesMap[symbol][tf].map(c => c.close),
+            10,
+            true
+        );
+        const latestATR = atrArr[atrArr.length - 1] || 0;
 
         const trendOk = (latest.sniperBuy && trend1h === 1 && trend4h === 1) ||
             (latest.sniperSell && trend1h === -1 && trend4h === -1);
 
         if (trendOk) {
-            const atrArr = computeATR(
-                candlesMap[symbol][tf].map(c => c.high),
-                candlesMap[symbol][tf].map(c => c.low),
-                candlesMap[symbol][tf].map(c => c.close),
-                10,
-                true
-            );
-            const latestATR = atrArr[atrArr.length - 1] || 0;
-            const signalType = latest.sniperBuy ? 'Buy' : 'Sell';
-            const targetPrice = latest.price + (signalType === 'Buy' ? latestATR : -latestATR);
+            handleTrade(symbol, latest, latestATR);
 
-            io.emit('newSignal', { symbol, tf, time: latest.time, side: signalType, price: latest.price, target: targetPrice });
-
-            // Open trade otomatis (demo)
-            if (!openTrades[symbol]) {
-                const tradeId = Date.now();
-                openTrades[symbol] = { id: tradeId, symbol, tf, time: latest.time, side: signalType.toLowerCase(), openPrice: latest.price, targetPrice, unrealized: 0 };
-                io.emit('tradeOpened', openTrades[symbol]);
-            }
+            io.emit('newSignal', {
+                symbol,
+                tf,
+                time: latest.time,
+                side: latest.sniperBuy ? 'Buy' : 'Sell',
+                price: latest.price,
+                target: latest.price + (latest.sniperBuy ? latestATR * 2 : -latestATR * 2)
+            });
         }
     });
 
-    // Update open trades
+    // Update open trade unrealized P/L
     const openTrade = openTrades[symbol];
     if (openTrade) {
-        const latestPrice = signals['5m'].slice(-1)[0]?.price || openTrade.openPrice;
+        const latestPrice = signalsPerTF['5m'].slice(-1)[0]?.price || openTrade.openPrice;
         openTrade.unrealized = openTrade.side === 'buy' ? latestPrice - openTrade.openPrice : openTrade.openPrice - latestPrice;
-
-        if ((openTrade.side === 'buy' && latestPrice >= openTrade.targetPrice) ||
-            (openTrade.side === 'sell' && latestPrice <= openTrade.targetPrice)) {
-
-            openTrade.closePrice = latestPrice;
-            openTrade.result = openTrade.unrealized;
-            openTrade.unrealized = 0;
-            tradeHistory[symbol].push(openTrade);
-            io.emit('tradeClosed', openTrade);
-            openTrades[symbol] = null;
-        } else {
-            io.emit('tradeUpdate', openTrade);
-        }
+        io.emit('tradeUpdate', openTrade);
     }
 }
 
-// ---------------- Start Live Demo -----------------
+// ---------------- Live Demo -----------------
 function startLiveDemo() {
-    setInterval(() => symbols.forEach(s => processMultiTF(s)), 60 * 1000); // update tiap 1 menit
+    setInterval(() => symbols.forEach(s => processMultiTF(s)), 60 * 1000);
 }
 
 // ---------------- Routes -----------------
@@ -142,7 +189,7 @@ app.get('/api/history/:symbol', (req, res) => {
 });
 app.get('/history', (req, res) => res.sendFile(__dirname + '/public/history.html'));
 
-// ---------------- Start server -----------------
+// ---------------- Start Server -----------------
 server.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
     sendTelegramMessage(`🚀 <b>Server Started</b>\nPort: ${PORT}\nTime: ${new Date().toISOString()}`);
