@@ -13,13 +13,7 @@ app.use(express.static('public'));
 
 const server = http.createServer(app);
 const io = new Server(server);
-
 const PORT = process.env.PORT || 3000;
-
-let candles = [];
-let openTrade = null;
-let tradeId = 0;
-let tradeHistory = [];
 
 // ---------------- Telegram -----------------
 function sendTelegramMessage(text) {
@@ -36,93 +30,116 @@ function sendTelegramMessage(text) {
         .catch(err => console.error("Telegram error:", err.response?.data || err.message));
 }
 
-// ---------------- Demo candle -----------------
-function generateDemoCandle(prev) {
-    const open = prev ? prev.close : 100;
-    const change = (Math.random() - 0.5) * 2;
-    const close = open + change;
-    const high = Math.max(open, close) + Math.random();
-    const low = Math.min(open, close) - Math.random();
-    return { time: new Date().toISOString(), open, high, low, close, volume: 1000 };
+// ---------------- Multi-timeframe -----------------
+const TIMEFRAMES = ['5m', '15m', '1h', '4h'];
+const symbols = ['BTCUSDT', 'XAUUSDT'];
+const candlesMap = {};
+
+// trade history per symbol
+const tradeHistory = { BTCUSDT: [], XAUUSDT: [] };
+const openTrades = { BTCUSDT: null, XAUUSDT: null };
+
+// ---------------- Binance API -----------------
+async function fetchCandles(symbol, interval = '1h', limit = 200) {
+    try {
+        const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
+        const res = await axios.get(url);
+        return res.data.map(c => ({
+            time: new Date(c[0]).toISOString(),
+            open: parseFloat(c[1]),
+            high: parseFloat(c[2]),
+            low: parseFloat(c[3]),
+            close: parseFloat(c[4]),
+            volume: parseFloat(c[5])
+        }));
+    } catch (err) {
+        console.error('Fetch candle error:', err.message);
+        return [];
+    }
 }
 
-// ---------------- Realtime trading demo -----------------
-function startDemo() {
-    // Kirim update P/L tiap 10 detik
-    setInterval(() => {
-        if (openTrade) {
-            sendTelegramMessage(
-                `⏳ <b>Open Trade Update</b>\nSide: ${openTrade.side === 'buy' ? '🟢 Buy' : '🔴 Sell'}\nOpen: ${openTrade.openPrice.toFixed(2)}\nCurrent Price: ${(openTrade.side === 'buy' ? openTrade.openPrice + openTrade.unrealized : openTrade.openPrice - openTrade.unrealized).toFixed(2)}\nUnrealized P/L: ${openTrade.unrealized.toFixed(2)}`
+// ---------------- Process Signals -----------------
+async function processMultiTF(symbol) {
+    // Ambil semua candles
+    candlesMap[symbol] = {};
+    for (const tf of TIMEFRAMES) {
+        candlesMap[symbol][tf] = await fetchCandles(symbol, tf);
+    }
+
+    // Hitung signals per timeframe
+    const signals = {};
+    for (const tf of TIMEFRAMES) {
+        signals[tf] = generateSignals(candlesMap[symbol][tf]);
+    }
+
+    // Trend filter 1h & 4h
+    const trend1h = signals['1h'].slice(-1)[0]?.trend;
+    const trend4h = signals['4h'].slice(-1)[0]?.trend;
+
+    // Entry 5m & 15m
+    ['5m', '15m'].forEach(tf => {
+        const latest = signals[tf].slice(-1)[0];
+        if (!latest) return;
+
+        const trendOk = (latest.sniperBuy && trend1h === 1 && trend4h === 1) ||
+            (latest.sniperSell && trend1h === -1 && trend4h === -1);
+
+        if (trendOk) {
+            const atrArr = computeATR(
+                candlesMap[symbol][tf].map(c => c.high),
+                candlesMap[symbol][tf].map(c => c.low),
+                candlesMap[symbol][tf].map(c => c.close),
+                10,
+                true
             );
-        }
-    }, 10000);
+            const latestATR = atrArr[atrArr.length - 1] || 0;
+            const signalType = latest.sniperBuy ? 'Buy' : 'Sell';
+            const targetPrice = latest.price + (signalType === 'Buy' ? latestATR : -latestATR);
 
-    setInterval(() => {
-        const candle = generateDemoCandle(candles[candles.length - 1]);
-        candles.push(candle);
-        if (candles.length > 200) candles.shift();
+            io.emit('newSignal', { symbol, tf, time: latest.time, side: signalType, price: latest.price, target: targetPrice });
 
-        const signals = generateSignals(candles);
-        const atrArr = computeATR(
-            candles.map(c => c.high),
-            candles.map(c => c.low),
-            candles.map(c => c.close),
-            10,
-            true
-        );
-
-        const latestSignal = signals[signals.length - 1];
-        const latestATR = atrArr[atrArr.length - 1] || 0;
-
-        if (latestSignal.sniperBuy || latestSignal.sniperSell) {
-            const signalType = latestSignal.sniperBuy ? "Buy" : "Sell";
-            const targetPrice = latestSignal.price + (signalType === "Buy" ? latestATR : -latestATR);
-
-            io.emit('newSignal', { time: latestSignal.time, side: signalType, price: latestSignal.price, target: targetPrice });
-
-            sendTelegramMessage(
-                `📊 <b>New Signal</b>\nTime: ${latestSignal.time}\nSide: ${signalType === 'Buy' ? '🟢 Buy' : '🔴 Sell'}\nPrice: ${latestSignal.price.toFixed(2)}\nTarget: ${targetPrice.toFixed(2)}`
-            );
-
-            if (!openTrade) {
-                tradeId++;
-                openTrade = { id: tradeId, time: latestSignal.time, side: signalType.toLowerCase(), openPrice: latestSignal.price, targetPrice, result: null, unrealized: 0 };
-                io.emit('tradeOpened', openTrade);
-
-                sendTelegramMessage(
-                    `⏳ <b>Trade Opened</b>\nSide: ${openTrade.side === 'buy' ? '🟢 Buy' : '🔴 Sell'}\nOpen: ${openTrade.openPrice.toFixed(2)}\nTarget: ${openTrade.targetPrice.toFixed(2)}`
-                );
+            // Open trade otomatis (demo)
+            if (!openTrades[symbol]) {
+                const tradeId = Date.now();
+                openTrades[symbol] = { id: tradeId, symbol, tf, time: latest.time, side: signalType.toLowerCase(), openPrice: latest.price, targetPrice, unrealized: 0 };
+                io.emit('tradeOpened', openTrades[symbol]);
             }
         }
+    });
 
-        if (openTrade) {
-            const side = openTrade.side;
-            const price = latestSignal.price;
-            openTrade.unrealized = side === 'buy' ? price - openTrade.openPrice : openTrade.openPrice - price;
-            io.emit('tradeUpdate', { ...openTrade });
+    // Update open trades
+    const openTrade = openTrades[symbol];
+    if (openTrade) {
+        const latestPrice = signals['5m'].slice(-1)[0]?.price || openTrade.openPrice;
+        openTrade.unrealized = openTrade.side === 'buy' ? latestPrice - openTrade.openPrice : openTrade.openPrice - latestPrice;
 
-            if ((side === 'buy' && price >= openTrade.targetPrice) || (side === 'sell' && price <= openTrade.targetPrice)) {
-                openTrade.closePrice = price;
-                openTrade.result = openTrade.unrealized;
-                openTrade.unrealized = 0;
-                tradeHistory.push(openTrade);
-                io.emit('tradeClosed', openTrade);
+        if ((openTrade.side === 'buy' && latestPrice >= openTrade.targetPrice) ||
+            (openTrade.side === 'sell' && latestPrice <= openTrade.targetPrice)) {
 
-                sendTelegramMessage(
-                    `✅ <b>Trade Closed</b>\nSide: ${openTrade.side === 'buy' ? '🟢 Buy' : '🔴 Sell'}\nOpen: ${openTrade.openPrice.toFixed(2)}\nClose: ${openTrade.closePrice.toFixed(2)}\n${openTrade.result >= 0 ? '💰 Profit' : '❌ Loss'}: ${openTrade.result.toFixed(2)}`
-                );
-
-                openTrade = null;
-            }
+            openTrade.closePrice = latestPrice;
+            openTrade.result = openTrade.unrealized;
+            openTrade.unrealized = 0;
+            tradeHistory[symbol].push(openTrade);
+            io.emit('tradeClosed', openTrade);
+            openTrades[symbol] = null;
+        } else {
+            io.emit('tradeUpdate', openTrade);
         }
+    }
+}
 
-    }, 1000);
+// ---------------- Start Live Demo -----------------
+function startLiveDemo() {
+    setInterval(() => symbols.forEach(s => processMultiTF(s)), 60 * 1000); // update tiap 1 menit
 }
 
 // ---------------- Routes -----------------
-app.get('/', (req, res) => res.json({ ok: true, msg: 'BOZZ TRADE Realtime Demo' }));
-app.get('/start-demo', (req, res) => { startDemo(); res.json({ ok: true, msg: 'Demo started' }); });
-app.get('/api/history', (req, res) => res.json(tradeHistory));
+app.get('/', (req, res) => res.json({ ok: true, msg: 'BOZZ TRADE Live Demo' }));
+app.get('/start-live', (req, res) => { startLiveDemo(); res.json({ ok: true, msg: 'Live demo started' }); });
+app.get('/api/history/:symbol', (req, res) => {
+    const s = req.params.symbol.toUpperCase();
+    res.json(tradeHistory[s] || []);
+});
 app.get('/history', (req, res) => res.sendFile(__dirname + '/public/history.html'));
 
 // ---------------- Start server -----------------
@@ -131,7 +148,7 @@ server.listen(PORT, () => {
     sendTelegramMessage(`🚀 <b>Server Started</b>\nPort: ${PORT}\nTime: ${new Date().toISOString()}`);
 });
 
-// ---------------- Notify on exit/crash -----------------
+// ---------------- Exit / Crash -----------------
 function handleExit(err) {
     const msg = err
         ? `⚠️ <b>Server Crashed</b>\nError: ${err.message}\nTime: ${new Date().toISOString()}`

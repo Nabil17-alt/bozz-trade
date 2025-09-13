@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>BOZZ TRADE Realtime Demo</title>
+    <title>BOZZ TRADE Live Demo</title>
     <script src="/socket.io/socket.io.js"></script>
     <style>
         body {
@@ -54,62 +54,83 @@
 </head>
 
 <body>
-    <h2>Histori Trade & Sinyal - BOZZ TRADE</h2>
+    <h2>BTC/USDT Trade & Signal</h2>
     <table>
         <thead>
             <tr>
+                <th>TF</th>
                 <th>Time</th>
                 <th>Side</th>
                 <th>Open</th>
-                <th>Target/TP</th>
+                <th>Target</th>
                 <th>Status</th>
-                <th>Profit/Loss</th>
+                <th>P/L</th>
             </tr>
         </thead>
-        <tbody id="history"></tbody>
+        <tbody id="btc-history"></tbody>
     </table>
+
+    <h2>XAU/USDT Trade & Signal</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>TF</th>
+                <th>Time</th>
+                <th>Side</th>
+                <th>Open</th>
+                <th>Target</th>
+                <th>Status</th>
+                <th>P/L</th>
+            </tr>
+        </thead>
+        <tbody id="xau-history"></tbody>
+    </table>
+
     <script>
-        const tbody = document.getElementById('history');
-        const trades = {};
+        const btcTbody = document.getElementById('btc-history');
+        const xauTbody = document.getElementById('xau-history');
+        const trades = { BTCUSDT: {}, XAUUSDT: {} };
         const socket = io();
 
         // Load history
-        fetch('/api/history').then(r => r.json()).then(data => {
-            data.forEach(trade => {
-                const row = document.createElement('tr');
-                row.id = 'trade-' + trade.id;
-                row.innerHTML = `<td>${trade.time}</td><td>${trade.side}</td><td>${trade.openPrice.toFixed(2)}</td><td>${trade.targetPrice.toFixed(2)}</td><td>Closed</td><td class="${trade.result >= 0 ? 'profit' : 'loss'}">${trade.result.toFixed(2)}</td>`;
-                tbody.prepend(row);
+        ['BTCUSDT', 'XAUUSDT'].forEach(symbol => {
+            fetch(`/api/history/${symbol}`).then(r => r.json()).then(data => {
+                const tbody = symbol === 'BTCUSDT' ? btcTbody : xauTbody;
+                data.forEach(trade => {
+                    const row = document.createElement('tr');
+                    row.id = `${symbol}-${trade.id}`;
+                    row.innerHTML = `<td>${trade.tf}</td><td>${trade.time}</td><td>${trade.side}</td><td>${trade.openPrice.toFixed(2)}</td><td>${trade.targetPrice.toFixed(2)}</td><td>Closed</td><td class="${trade.result >= 0 ? 'profit' : 'loss'}">${trade.result.toFixed(2)}</td>`;
+                    tbody.prepend(row);
+                });
             });
         });
 
-        // New Signal
+        // Socket.io events
         socket.on('newSignal', sig => {
+            const tbody = sig.symbol === 'BTCUSDT' ? btcTbody : xauTbody;
             const row = document.createElement('tr');
-            row.id = 'signal-' + sig.time;
-            row.innerHTML = `<td>${sig.time}</td><td>${sig.side}</td><td>${sig.price.toFixed(2)}</td><td>${sig.target.toFixed(2)}</td><td>Signal</td><td>-</td>`;
+            row.id = `signal-${sig.symbol}-${sig.time}`;
+            row.innerHTML = `<td>${sig.tf}</td><td>${sig.time}</td><td>${sig.side}</td><td>${sig.price.toFixed(2)}</td><td>${sig.target.toFixed(2)}</td><td>Signal</td><td>-</td>`;
             tbody.prepend(row);
         });
 
-        // Trade opened
         socket.on('tradeOpened', trade => {
+            const tbody = trade.symbol === 'BTCUSDT' ? btcTbody : xauTbody;
             const row = document.createElement('tr');
-            row.id = 'trade-' + trade.id;
-            trades[trade.id] = row;
-            row.innerHTML = `<td>${trade.time}</td><td>${trade.side}</td><td>${trade.openPrice.toFixed(2)}</td><td>${trade.targetPrice.toFixed(2)}</td><td>Open</td><td>-</td>`;
+            row.id = `${trade.symbol}-${trade.id}`;
+            trades[trade.symbol][trade.id] = row;
+            row.innerHTML = `<td>${trade.tf}</td><td>${trade.time}</td><td>${trade.side}</td><td>${trade.openPrice.toFixed(2)}</td><td>${trade.targetPrice.toFixed(2)}</td><td>Open</td><td>-</td>`;
             tbody.prepend(row);
         });
 
-        // Trade update
         socket.on('tradeUpdate', trade => {
-            const row = trades[trade.id];
-            if (row) row.innerHTML = `<td>${trade.time}</td><td>${trade.side}</td><td>${trade.openPrice.toFixed(2)}</td><td>${trade.targetPrice.toFixed(2)}</td><td>Open</td><td class="${trade.unrealized >= 0 ? 'profit' : 'loss'}">${trade.unrealized.toFixed(2)}</td>`;
+            const row = trades[trade.symbol][trade.id];
+            if (row) row.innerHTML = `<td>${trade.tf}</td><td>${trade.time}</td><td>${trade.side}</td><td>${trade.openPrice.toFixed(2)}</td><td>${trade.targetPrice.toFixed(2)}</td><td>Open</td><td class="${trade.unrealized >= 0 ? 'profit' : 'loss'}">${trade.unrealized.toFixed(2)}</td>`;
         });
 
-        // Trade closed
         socket.on('tradeClosed', trade => {
-            const row = trades[trade.id];
-            if (row) row.innerHTML = `<td>${trade.time}</td><td>${trade.side}</td><td>${trade.openPrice.toFixed(2)}</td><td>${trade.targetPrice.toFixed(2)}</td><td>Closed</td><td class="${trade.result >= 0 ? 'profit' : 'loss'}">${trade.result.toFixed(2)}</td>`;
+            const row = trades[trade.symbol][trade.id];
+            if (row) row.innerHTML = `<td>${trade.tf}</td><td>${trade.time}</td><td>${trade.side}</td><td>${trade.openPrice.toFixed(2)}</td><td>${trade.targetPrice.toFixed(2)}</td><td>Closed</td><td class="${trade.result >= 0 ? 'profit' : 'loss'}">${trade.result.toFixed(2)}</td>`;
         });
     </script>
 </body>
