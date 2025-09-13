@@ -1,323 +1,187 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-    <meta charset="UTF-8">
-    <title>BOZZ TRADE Dashboard</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <script src="/socket.io/socket.io.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            --bg: #1e1e2f;
-            --text: #f5f5f5;
-            --accent: #4e9af1;
-            --table-bg: #2c2c3c;
-            --header-bg: #3a3a50;
-            --profit: #2ecc71;
-            --loss: #e84118;
-            --signal: #f1c40f;
-            --badge-buy: #2ecc71;
-            --badge-sell: #e84118;
-        }
+<meta charset="UTF-8">
+<title>BOZZ TRADE Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script src="/socket.io/socket.io.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+    --bg: #1e1e2f;
+    --text: #f5f5f5;
+    --accent: #4e9af1;
+    --table-bg: #2c2c3c;
+    --header-bg: #3a3a50;
+    --profit: #2ecc71;
+    --loss: #e84118;
+    --signal: #f1c40f;
+    --badge-buy: #2ecc71;
+    --badge-sell: #e84118;
+}
 
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            font-family: 'Inter', sans-serif;
-        }
+* { margin:0; padding:0; box-sizing:border-box; font-family:'Inter', sans-serif; }
+body { background: var(--bg); color: var(--text); min-height:100vh; padding:15px; }
+h2 { text-align:center; font-weight:600; margin-bottom:20px; }
 
-        body {
-            background: var(--bg);
-            color: var(--text);
-            min-height: 100vh;
-            padding: 15px;
-        }
+.dashboard { display:flex; flex-wrap:wrap; gap:20px; }
+.chart-container { flex:1 1 65%; min-width:320px; height:600px; border-radius:12px; overflow:hidden; box-shadow:0 4px 20px rgba(0,0,0,0.3); background:#000; }
+.panel-container { flex:1 1 33%; min-width:280px; display:flex; flex-direction:column; gap:20px; }
 
-        h2 {
-            text-align: center;
-            font-weight: 600;
-            margin-bottom: 20px;
-        }
+.panel { flex:1; border-radius:12px; overflow:hidden; background: var(--table-bg); box-shadow:0 4px 20px rgba(0,0,0,0.3); }
+.panel h3 { text-align:center; padding:10px 0; border-bottom:1px solid #3d3d50; font-weight:600; }
 
-        .dashboard {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 20px;
-        }
+table { width:100%; border-collapse:collapse; font-size:0.85rem; }
+th, td { padding:6px 10px; text-align:center; }
+th { background: var(--header-bg); font-weight:600; }
+tr { border-bottom:1px solid #3d3d50; }
+tr:hover { background: rgba(78,154,241,0.1); }
+.profit { color: var(--profit); font-weight:600; }
+.loss { color: var(--loss); font-weight:600; }
+.badge { padding:2px 6px; border-radius:6px; font-size:0.7rem; margin:0 2px; }
+.badge.buy { background: var(--badge-buy); color:#fff; }
+.badge.sell { background: var(--badge-sell); color:#fff; }
 
-        .chart-container {
-            flex: 1 1 65%;
-            min-width: 320px;
-            height: 600px;
-            border-radius: 12px;
-            overflow: hidden;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-            background: #000;
-        }
+.filter-bar { display:flex; justify-content:center; gap:15px; flex-wrap:wrap; margin-bottom:10px;}
+.filter-bar select { padding:5px 10px; border-radius:6px; border:none; background:#333; color:#fff; font-weight:500; cursor:pointer; transition:all 0.2s ease; }
+.filter-bar select:hover { background: var(--accent); }
 
-        .panel-container {
-            flex: 1 1 33%;
-            min-width: 280px;
-            display: flex;
-            flex-direction: column;
-            gap: 20px;
-        }
-
-        .panel {
-            flex: 1;
-            border-radius: 12px;
-            overflow: hidden;
-            background: var(--table-bg);
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-        }
-
-        .panel h3 {
-            text-align: center;
-            padding: 10px 0;
-            border-bottom: 1px solid #3d3d50;
-            font-weight: 600;
-        }
-
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 0.85rem;
-        }
-
-        th,
-        td {
-            padding: 6px 10px;
-            text-align: center;
-        }
-
-        th {
-            background: var(--header-bg);
-            font-weight: 600;
-        }
-
-        tr {
-            border-bottom: 1px solid #3d3d50;
-        }
-
-        tr:hover {
-            background: rgba(78, 154, 241, 0.1);
-        }
-
-        .profit {
-            color: var(--profit);
-            font-weight: 600;
-        }
-
-        .loss {
-            color: var(--loss);
-            font-weight: 600;
-        }
-
-        .badge {
-            padding: 2px 6px;
-            border-radius: 6px;
-            font-size: 0.7rem;
-            margin: 0 2px;
-        }
-
-        .badge.buy {
-            background: var(--badge-buy);
-            color: #fff;
-        }
-
-        .badge.sell {
-            background: var(--badge-sell);
-            color: #fff;
-        }
-
-        .filter-bar {
-            display: flex;
-            justify-content: center;
-            gap: 15px;
-            flex-wrap: wrap;
-            margin-bottom: 10px;
-        }
-
-        .filter-bar select {
-            padding: 5px 10px;
-            border-radius: 6px;
-            border: none;
-            background: #333;
-            color: #fff;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all 0.2s ease;
-        }
-
-        .filter-bar select:hover {
-            background: var(--accent);
-        }
-
-        @media(max-width:1024px) {
-            .dashboard {
-                flex-direction: column;
-            }
-
-            .chart-container,
-            .panel-container {
-                flex: 1 1 100%;
-            }
-        }
-    </style>
+@media(max-width:1024px) { .dashboard { flex-direction:column; } .chart-container,.panel-container { flex:1 1 100%; } }
+</style>
 </head>
-
 <body>
 
-    <h2>BOZZ TRADE Dashboard - Live BTC & XAU</h2>
+<h2>BOZZ TRADE Dashboard - Live BTC & XAU</h2>
 
-    <div class="filter-bar">
-        <select id="symbol-filter">
-            <option value="all">All Symbols</option>
-            <option value="BTCUSDT">BTC/USDT</option>
-            <option value="XAUUSDT">XAU/USDT</option>
-        </select>
-        <select id="tf-filter">
-            <option value="all">All Timeframes</option>
-            <option value="5m">5m</option>
-            <option value="15m">15m</option>
-            <option value="1h">1h</option>
-            <option value="4h">4h</option>
-        </select>
-    </div>
+<div class="filter-bar">
+    <select id="symbol-filter">
+        <option value="all">All Symbols</option>
+        <option value="BTCUSDT">BTC/USDT</option>
+        <option value="XAUUSDT">XAU/USDT</option>
+    </select>
+    <select id="tf-filter">
+        <option value="all">All Timeframes</option>
+        <option value="5m">5m</option>
+        <option value="15m">15m</option>
+        <option value="1h">1h</option>
+        <option value="4h">4h</option>
+    </select>
+</div>
 
-    <div class="dashboard">
-        <div class="chart-container" id="main-chart"></div>
-        <div class="panel-container">
-            <div class="panel">
-                <h3>BTC/USDT Trades & Signals</h3>
-                <div style="overflow:auto; max-height:280px;">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>TF</th>
-                                <th>Time</th>
-                                <th>Side</th>
-                                <th>Open</th>
-                                <th>Target</th>
-                                <th>Status</th>
-                                <th>P/L</th>
-                            </tr>
-                        </thead>
-                        <tbody id="btc-history"></tbody>
-                    </table>
-                </div>
+<div class="dashboard">
+    <div class="chart-container" id="main-chart"></div>
+    <div class="panel-container">
+        <div class="panel">
+            <h3>BTC/USDT Trades & Signals</h3>
+            <div style="overflow:auto; max-height:280px;">
+            <table>
+                <thead>
+                    <tr><th>TF</th><th>Time</th><th>Side</th><th>Open</th><th>Target</th><th>Status</th><th>P/L</th></tr>
+                </thead>
+                <tbody id="btc-history"></tbody>
+            </table>
             </div>
-            <div class="panel">
-                <h3>XAU/USDT Trades & Signals</h3>
-                <div style="overflow:auto; max-height:280px;">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>TF</th>
-                                <th>Time</th>
-                                <th>Side</th>
-                                <th>Open</th>
-                                <th>Target</th>
-                                <th>Status</th>
-                                <th>P/L</th>
-                            </tr>
-                        </thead>
-                        <tbody id="xau-history"></tbody>
-                    </table>
-                </div>
+        </div>
+        <div class="panel">
+            <h3>XAU/USDT Trades & Signals</h3>
+            <div style="overflow:auto; max-height:280px;">
+            <table>
+                <thead>
+                    <tr><th>TF</th><th>Time</th><th>Side</th><th>Open</th><th>Target</th><th>Status</th><th>P/L</th></tr>
+                </thead>
+                <tbody id="xau-history"></tbody>
+            </table>
             </div>
         </div>
     </div>
+</div>
 
-    <script src="https://s3.tradingview.com/tv.js"></script>
-    <script src="/socket.io/socket.io.js"></script>
-    <script>
-        // Chart Widget
-        function createChart(symbol) {
-            return new TradingView.widget({
-                autosize: true,
-                symbol: symbol,
-                interval: "5",
-                timezone: "Etc/UTC",
-                theme: "dark",
-                style: "1",
-                locale: "en",
-                container_id: "main-chart",
-                toolbar_bg: "#1e1e2f",
-                allow_symbol_change: true,
-                enable_publishing: false
-            });
-        }
-        createChart("BINANCE:BTCUSDT"); // default chart
+<script src="https://s3.tradingview.com/tv.js"></script>
+<script src="/socket.io/socket.io.js"></script>
+<script>
+// Chart Widget
+function createChart(symbol) {
+    return new TradingView.widget({
+        autosize:true,
+        symbol:symbol,
+        interval:"5",
+        timezone:"Etc/UTC",
+        theme:"dark",
+        style:"1",
+        locale:"en",
+        container_id:"main-chart",
+        toolbar_bg:"#1e1e2f",
+        allow_symbol_change:true,
+        enable_publishing:false
+    });
+}
+createChart("BINANCE:BTCUSDT"); // default chart
 
-        // Socket.io
-        const socket = io();
-        const btcTbody = document.getElementById('btc-history');
-        const xauTbody = document.getElementById('xau-history');
-        const trades = { BTCUSDT: {}, XAUUSDT: {} };
+// Socket.io
+const socket = io();
+const btcTbody = document.getElementById('btc-history');
+const xauTbody = document.getElementById('xau-history');
+const trades = { BTCUSDT:{}, XAUUSDT:{} };
 
-        function renderRow(trade, tbody) {
-            const row = document.createElement('tr');
-            row.id = `${trade.symbol}-${trade.id || trade.time}`;
-            const sideBadge = `<span class="badge ${trade.side === 'Buy' ? 'buy' : 'sell'}">${trade.side}</span>`;
-            row.innerHTML = `<td>${trade.tf}</td><td>${trade.time}</td><td>${sideBadge}</td><td>${trade.openPrice.toFixed(2)}</td><td>${trade.targetPrice?.toFixed(2) || '-'}</td><td>${trade.status}</td><td class="${trade.result >= 0 ? 'profit' : 'loss'}">${trade.result?.toFixed(2) || trade.unrealized?.toFixed(2) || '-'}</td>`;
-            tbody.prepend(row);
-            return row;
-        }
+function renderRow(trade, tbody){
+    const row = document.createElement('tr');
+    row.id = `${trade.symbol}-${trade.id || trade.time}`;
+    const sideBadge = `<span class="badge ${trade.side==='Buy'?'buy':'sell'}">${trade.side}</span>`;
+    row.innerHTML = `<td>${trade.tf}</td><td>${trade.time}</td><td>${sideBadge}</td><td>${trade.openPrice.toFixed(2)}</td><td>${trade.targetPrice?.toFixed(2)||'-'}</td><td>${trade.status}</td><td class="${trade.result>=0?'profit':'loss'}">${trade.result?.toFixed(2)||trade.unrealized?.toFixed(2)||'-'}</td>`;
+    tbody.prepend(row);
+    return row;
+}
 
-        // load history
-        ['BTCUSDT', 'XAUUSDT'].forEach(symbol => {
-            fetch(`/api/history/${symbol}`).then(r => r.json()).then(data => {
-                const tbody = symbol === 'BTCUSDT' ? btcTbody : xauTbody;
-                data.forEach(trade => {
-                    trade.symbol = symbol;
-                    trade.tf = trade.tf || '5m';
-                    trade.status = 'Closed';
-                    renderRow(trade, tbody);
-                });
-            });
+// load history
+['BTCUSDT','XAUUSDT'].forEach(symbol=>{
+    fetch(`/api/history/${symbol}`).then(r=>r.json()).then(data=>{
+        const tbody = symbol==='BTCUSDT'?btcTbody:xauTbody;
+        data.forEach(trade=>{
+            trade.symbol = symbol;
+            trade.tf = trade.tf || '5m';
+            trade.status = 'Closed';
+            renderRow(trade, tbody);
         });
+    });
+});
 
-        // socket events
-        socket.on('newSignal', sig => {
-            const tbody = sig.symbol === 'BTCUSDT' ? btcTbody : xauTbody;
-            sig.symbol = sig.symbol;
-            sig.tf = sig.tf || '5m';
-            sig.status = 'Signal';
-            renderRow(sig, tbody);
-        });
+// socket events
+socket.on('newSignal', sig=>{
+    const tbody = sig.symbol==='BTCUSDT'?btcTbody:xauTbody;
+    sig.symbol=sig.symbol;
+    sig.tf=sig.tf||'5m';
+    sig.status='Signal';
+    renderRow(sig, tbody);
+});
 
-        socket.on('tradeOpened', trade => {
-            const tbody = trade.symbol === 'BTCUSDT' ? btcTbody : xauTbody;
-            trade.status = 'Open';
-            trades[trade.symbol][trade.id] = renderRow(trade, tbody);
-        });
+socket.on('tradeOpened', trade=>{
+    const tbody = trade.symbol==='BTCUSDT'?btcTbody:xauTbody;
+    trade.status='Open';
+    trades[trade.symbol][trade.id]=renderRow(trade, tbody);
+});
 
-        socket.on('tradeUpdate', trade => {
-            const row = trades[trade.symbol][trade.id];
-            if (row) {
-                const plCell = row.cells[6];
-                plCell.textContent = trade.unrealized.toFixed(2);
-                plCell.className = trade.unrealized >= 0 ? 'profit' : 'loss';
-            }
-        });
+socket.on('tradeUpdate', trade=>{
+    const row = trades[trade.symbol][trade.id];
+    if(row){
+        const plCell=row.cells[6];
+        plCell.textContent=trade.unrealized.toFixed(2);
+        plCell.className=trade.unrealized>=0?'profit':'loss';
+    }
+});
 
-        socket.on('tradeClosed', trade => {
-            const row = trades[trade.symbol][trade.id];
-            if (row) {
-                row.cells[5].textContent = 'Closed';
-                const plCell = row.cells[6];
-                plCell.textContent = trade.result.toFixed(2);
-                plCell.className = trade.result >= 0 ? 'profit' : 'loss';
-            }
-        });
+socket.on('tradeClosed', trade=>{
+    const row=trades[trade.symbol][trade.id];
+    if(row){
+        row.cells[5].textContent='Closed';
+        const plCell=row.cells[6];
+        plCell.textContent=trade.result.toFixed(2);
+        plCell.className=trade.result>=0?'profit':'loss';
+    }
+});
 
-        // filter
-        document.getElementById('symbol-filter').addEventListener('change', () => { /* optional filter */ });
-        document.getElementById('tf-filter').addEventListener('change', () => { /* optional filter */ });
-    </script>
+// filter
+document.getElementById('symbol-filter').addEventListener('change',()=>{ /* optional filter */ });
+document.getElementById('tf-filter').addEventListener('change',()=>{ /* optional filter */ });
+</script>
 </body>
-
 </html>
