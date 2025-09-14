@@ -46,7 +46,17 @@ function formatDate(dt) {
     if (!dt) return '-';
     const d = new Date(dt);
     if (isNaN(d)) return dt;
-    return d.toLocaleString('en-GB', { hour12: false });
+    // WIB = UTC+7
+    const wibTime = new Date(d.getTime() + 7 * 60 * 60 * 1000);
+    // Format: dd/MM/yyyy, HH:mm:ss WIB
+    const pad = n => n.toString().padStart(2, '0');
+    const day = pad(wibTime.getUTCDate());
+    const month = pad(wibTime.getUTCMonth() + 1);
+    const year = wibTime.getUTCFullYear();
+    const hour = pad(wibTime.getUTCHours());
+    const min = pad(wibTime.getUTCMinutes());
+    const sec = pad(wibTime.getUTCSeconds());
+    return `${day}/${month}/${year}, ${hour}:${min}:${sec} WIB`;
 }
 
 function formatSide(side) {
@@ -91,7 +101,9 @@ function sendInitialTelegramLogs() {
             sendTelegramMessage(telegramMsg('CLOSED', trade));
         });
     });
-    sendTelegramMessage(`🟢 <b>Live Demo Active</b>\n<b>Symbols:</b> ${symbols.join(', ')}\n<b>Timeframes:</b> ${TIMEFRAMES.join(', ')}`);
+    sendTelegramMessage(
+        `🟢 <b>Live Demo Active</b>\n━━━━━━━━━━━━━━\n<b>Dashboard:</b> <a href=\"https://bozz-trade-production.up.railway.app/history\">bozz-trade-production.up.railway.app/history</a>\n<b>Symbols:</b> <code>${symbols.join(', ')}</code>\n<b>Timeframes:</b> <code>${TIMEFRAMES.join(', ')}</code>\n🕒 <b>Time:</b> ${formatDate(new Date())}`
+    );
 }
 
 // ---------------- SOCKET.IO -----------------
