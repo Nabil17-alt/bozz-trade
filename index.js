@@ -20,7 +20,8 @@ const TIMEFRAMES = ['5m', '15m', '1h', '4h'];
 const symbols = ['BTCUSDT', 'XAUUSDT'];
 const candlesMap = {};
 const tradeHistory = { BTCUSDT: [], XAUUSDT: [] };
-const openTrades = { BTCUSDT: null, XAUUSDT: null };
+// Multi-entry: openTrades[symbol] = array of open trades
+const openTrades = { BTCUSDT: [], XAUUSDT: [] };
 const defaultLot = 0.01; // Default lot
 
 // ---------------- Telegram -----------------
@@ -79,9 +80,9 @@ function sendInitialTelegramLogs() {
     sendTelegramMessage(telegramMsg('STARTUP', { port: PORT, time: new Date() }));
     // Open trades
     Object.keys(openTrades).forEach(symbol => {
-        const t = openTrades[symbol];
-        if (t) {
-            sendTelegramMessage(telegramMsg('OPEN', t));
+        const arr = openTrades[symbol];
+        if (Array.isArray(arr)) {
+            arr.forEach(t => sendTelegramMessage(telegramMsg('OPEN', t)));
         }
     });
     // Trade history
@@ -127,49 +128,30 @@ async function fetchCandles(symbol, interval = '1h', limit = 200) {
 
 // ---------------- TRADE HANDLER -----------------
 function handleTrade(symbol, latestSignal, atr) {
-    const openTrade = openTrades[symbol];
     if (!latestSignal) return;
 
     const lotSize = defaultLot;
-    // Side: 'Buy'/'Sell' (frontend expects capitalized)
     const side = latestSignal.sniperBuy ? 'Buy' : latestSignal.sniperSell ? 'Sell' : latestSignal.buySignal ? 'Buy' : 'Sell';
     const openPrice = latestSignal.price;
+    const tpMult = (latestSignal.sniperBuy || latestSignal.sniperSell) ? 2 : 1;
     const stopLoss = side === 'Buy' ? openPrice - atr : openPrice + atr;
-    const targetPrice = side === 'Buy' ? openPrice + atr * 2 : openPrice - atr * 2;
-
-    if (!openTrade) {
-        const tradeId = Date.now();
-        openTrades[symbol] = {
-            id: tradeId,
-            symbol,
-            tf: latestSignal.tf,
-            time: latestSignal.time,
-            side,
-            openPrice,
-            targetPrice,
-            stopLoss,
-            unrealized: 0,
-            lotSize
-        };
-        io.emit('tradeOpened', openTrades[symbol]);
-        sendTelegramMessage(telegramMsg('OPEN', openTrades[symbol]));
-        return;
-    }
-
-    // Update unrealized P/L
-    const latestPrice = latestSignal.price;
-    openTrade.unrealized = openTrade.side === 'Buy' ? latestPrice - openTrade.openPrice : openTrade.openPrice - latestPrice;
-
-    // Close if TP or SL reached
-    if ((openTrade.side === 'Buy' && (latestPrice >= openTrade.targetPrice || latestPrice <= openTrade.stopLoss)) ||
-        (openTrade.side === 'Sell' && (latestPrice <= openTrade.targetPrice || latestPrice >= openTrade.stopLoss))) {
-        openTrade.closePrice = latestPrice;
-        openTrade.result = openTrade.unrealized;
-        tradeHistory[symbol].push(openTrade);
-        io.emit('tradeClosed', openTrade);
-        sendTelegramMessage(telegramMsg('CLOSED', openTrade));
-        openTrades[symbol] = null;
-    }
+    const targetPrice = side === 'Buy' ? openPrice + atr * tpMult : openPrice - atr * tpMult;
+    const tradeId = Date.now() + Math.floor(Math.random() * 10000); // unique id
+    const trade = {
+        id: tradeId,
+        symbol,
+        tf: latestSignal.tf,
+        time: latestSignal.time,
+        side,
+        openPrice,
+        targetPrice,
+        stopLoss,
+        unrealized: 0,
+        lotSize
+    };
+    openTrades[symbol].push(trade);
+    io.emit('tradeOpened', trade);
+    sendTelegramMessage(telegramMsg('OPEN', trade));
 }
 
 // ---------------- MULTI-TF PROCESSOR -----------------
@@ -184,12 +166,10 @@ async function processMultiTF(symbol) {
         signalsPerTF[tf] = generateSignals(candlesMap[symbol][tf]);
     }
 
-    const trend1h = signalsPerTF['1h'].slice(-1)[0]?.trend;
-    const trend4h = signalsPerTF['4h'].slice(-1)[0]?.trend;
-
-    ['5m', '15m'].forEach(tf => {
+    // Untuk setiap timeframe, cek sinyal terbaru
+    for (const tf of TIMEFRAMES) {
         const latest = signalsPerTF[tf].slice(-1)[0];
-        if (!latest) return;
+        if (!latest) continue;
 
         const atrArr = computeATR(
             candlesMap[symbol][tf].map(c => c.high),
@@ -200,17 +180,15 @@ async function processMultiTF(symbol) {
         );
         const latestATR = atrArr[atrArr.length - 1] || 0;
 
-        const trendOk = (latest.sniperBuy && trend1h === 1 && trend4h === 1) ||
-            (latest.sniperSell && trend1h === -1 && trend4h === -1);
-
-        if (trendOk) handleTrade(symbol, latest, latestATR);
-
-        if (trendOk) {
-            // Lengkapi field agar sesuai frontend
-            const side = latest.sniperBuy ? 'Buy' : 'Sell';
+        // Jika ada sinyal buy/sell atau sniper, langsung open posisi
+        if (latest.sniperBuy || latest.sniperSell || latest.buySignal || latest.sellSignal) {
+            // Kirim sinyal ke frontend
+            const side = latest.sniperBuy || latest.buySignal ? 'Buy' : 'Sell';
+            // TP multiplier: sniper = 2, biasa = 1
+            const tpMult = (latest.sniperBuy || latest.sniperSell) ? 2 : 1;
             const openPrice = latest.price;
             const stopLoss = side === 'Buy' ? openPrice - latestATR : openPrice + latestATR;
-            const targetPrice = side === 'Buy' ? openPrice + latestATR * 2 : openPrice - latestATR * 2;
+            const targetPrice = side === 'Buy' ? openPrice + latestATR * tpMult : openPrice - latestATR * tpMult;
             io.emit('newSignal', {
                 symbol,
                 tf,
@@ -224,14 +202,34 @@ async function processMultiTF(symbol) {
                 result: null,
                 unrealized: null
             });
+            // Open posisi jika belum ada trade terbuka
+            handleTrade(symbol, { ...latest, tf }, latestATR);
         }
-    });
+    }
 
-    const openTrade = openTrades[symbol];
-    if (openTrade) {
-        const latestPrice = signalsPerTF['5m'].slice(-1)[0]?.price || openTrade.openPrice;
-        openTrade.unrealized = openTrade.side === 'buy' ? latestPrice - openTrade.openPrice : openTrade.openPrice - latestPrice;
-        io.emit('tradeUpdate', openTrade);
+    // Update unrealized P/L dan close trade jika TP/SL tercapai untuk semua posisi aktif
+    const openList = openTrades[symbol];
+    if (openList && openList.length > 0) {
+        // Copy array karena kita akan hapus trade jika closed
+        for (let i = openList.length - 1; i >= 0; i--) {
+            const trade = openList[i];
+            // Ambil harga terakhir dari timeframe trade
+            const tf = trade.tf || '5m';
+            const lastPrice = signalsPerTF[tf]?.slice(-1)[0]?.price || trade.openPrice;
+            trade.unrealized = trade.side === 'Buy' ? lastPrice - trade.openPrice : trade.openPrice - lastPrice;
+            // Emit update
+            io.emit('tradeUpdate', trade);
+            // Close jika TP/SL
+            if ((trade.side === 'Buy' && (lastPrice >= trade.targetPrice || lastPrice <= trade.stopLoss)) ||
+                (trade.side === 'Sell' && (lastPrice <= trade.targetPrice || lastPrice >= trade.stopLoss))) {
+                trade.closePrice = lastPrice;
+                trade.result = trade.unrealized;
+                tradeHistory[symbol].push(trade);
+                io.emit('tradeClosed', trade);
+                sendTelegramMessage(telegramMsg('CLOSED', trade));
+                openList.splice(i, 1); // remove from openTrades
+            }
+        }
     }
 }
 
