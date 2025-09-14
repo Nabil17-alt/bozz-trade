@@ -67,7 +67,7 @@ function formatSide(side) {
 function telegramMsg(type, data = {}) {
     switch (type) {
         case 'STARTUP':
-            return `🚀 <b>Server Started</b>\n<b>Dashboard:</b> <a href=\"https://bozz-trade-production.up.railway.app/history\">bozz-trade-production.up.railway.app/history</a>\n🕒 <b>Time:</b> ${formatDate(data.time)}`;
+            return `🚀 <b>Server Started</b>\n\n🟢 <b>Live Demo Active</b>\n━━━━━━━━━━━━━━\n<b>Symbols:</b> <code>${symbols.join(', ')}</code>\n<b>Timeframes:</b> <code>${TIMEFRAMES.join(', ')}</code>\n\n<b>Dashboard:</b> <a href=\"https://bozz-trade-production.up.railway.app/history\">bozz-trade-production.up.railway.app/history</a>\n🕒 <b>Time:</b> ${formatDate(data.time)}`;
         case 'OPEN':
             return `💰 <b>New Trade Opened</b>\n━━━━━━━━━━━━━━\n<b>Symbol:</b> <code>${data.symbol || '-'}</code>\n<b>Side:</b> ${formatSide(data.side)}\n<b>Lot:</b> <code>${formatNumber(data.lotSize)}</code>\n<b>Open Price:</b> <code>${formatNumber(data.openPrice)}</code>\n<b>TP:</b> <code>${formatNumber(data.targetPrice)}</code>\n<b>SL:</b> <code>${formatNumber(data.stopLoss)}</code>\n🕒 <b>Time:</b> ${formatDate(data.time)}`;
         case 'CLOSED':
