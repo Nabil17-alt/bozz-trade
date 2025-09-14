@@ -250,6 +250,34 @@ app.get('/history', (req, res) => res.sendFile(__dirname + '/public/history.html
 server.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
     sendInitialTelegramLogs();
+    // --- Open trade on startup at current market price for each symbol ---
+    (async () => {
+        for (const symbol of symbols) {
+            const candles = await fetchCandles(symbol, '5m', 2);
+            const last = candles[candles.length - 1];
+            if (!last) continue;
+            const openPrice = last.close;
+            const atr = Math.abs(last.high - last.low) || 10;
+            const stopLoss = openPrice - atr;
+            const targetPrice = openPrice + atr;
+            const now = new Date();
+            const trade = {
+                id: Date.now() + Math.floor(Math.random() * 10000),
+                symbol,
+                tf: '5m',
+                time: now.toISOString(),
+                side: 'Buy',
+                openPrice,
+                targetPrice,
+                stopLoss,
+                unrealized: 0,
+                lotSize: defaultLot
+            };
+            openTrades[symbol].push(trade);
+            io.emit('tradeOpened', trade);
+            sendTelegramMessage(telegramMsg('OPEN', trade));
+        }
+    })();
 });
 
 // ---------------- EXIT HANDLER -----------------
