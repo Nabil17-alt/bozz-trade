@@ -57,19 +57,19 @@ function formatSide(side) {
 function telegramMsg(type, data = {}) {
     switch (type) {
         case 'STARTUP':
-            return `🚀 <b>Server Started</b>\n<b>Port:</b> ${data.port || '-'}\n<b>Time:</b> ${formatDate(data.time)}`;
+            return `🚀 <b>Server Started</b>\n<b>Dashboard:</b> <a href=\"https://bozz-trade-production.up.railway.app/history\">bozz-trade-production.up.railway.app/history</a>\n🕒 <b>Time:</b> ${formatDate(data.time)}`;
         case 'OPEN':
-            return `💰 <b>Open Trade</b>\n<b>Symbol:</b> ${data.symbol || '-'}\n<b>Side:</b> ${formatSide(data.side)}\n<b>Lot:</b> ${formatNumber(data.lotSize)}\n<b>Open:</b> ${formatNumber(data.openPrice)}\n<b>TP:</b> ${formatNumber(data.targetPrice)}\n<b>SL:</b> ${formatNumber(data.stopLoss)}\n<b>Time:</b> ${formatDate(data.time)}`;
+            return `💰 <b>New Trade Opened</b>\n━━━━━━━━━━━━━━\n<b>Symbol:</b> <code>${data.symbol || '-'}</code>\n<b>Side:</b> ${formatSide(data.side)}\n<b>Lot:</b> <code>${formatNumber(data.lotSize)}</code>\n<b>Open Price:</b> <code>${formatNumber(data.openPrice)}</code>\n<b>TP:</b> <code>${formatNumber(data.targetPrice)}</code>\n<b>SL:</b> <code>${formatNumber(data.stopLoss)}</code>\n🕒 <b>Time:</b> ${formatDate(data.time)}`;
         case 'CLOSED':
-            return `✅ <b>Trade Closed</b>\n<b>Symbol:</b> ${data.symbol || '-'}\n<b>Side:</b> ${formatSide(data.side)}\n<b>Lot:</b> ${formatNumber(data.lotSize)}\n<b>Open:</b> ${formatNumber(data.openPrice)}\n<b>Close:</b> ${formatNumber(data.closePrice)}\n<b>P/L:</b> <b>${data.result >= 0 ? '+' : ''}${formatNumber(data.result)}</b>\n<b>Time:</b> ${formatDate(data.time)}`;
+            return `✅ <b>Trade Closed</b>\n━━━━━━━━━━━━━━\n<b>Symbol:</b> <code>${data.symbol || '-'}</code>\n<b>Side:</b> ${formatSide(data.side)}\n<b>Lot:</b> <code>${formatNumber(data.lotSize)}</code>\n<b>Open:</b> <code>${formatNumber(data.openPrice)}</code>\n<b>Close:</b> <code>${formatNumber(data.closePrice)}</code>\n<b>P/L:</b> <b>${data.result >= 0 ? '🟢 +' : '🔴 '}${formatNumber(data.result)}</b>\n🕒 <b>Time:</b> ${formatDate(data.time)}`;
         case 'SIGNAL':
-            return `📊 <b>New Signal</b>\n<b>Symbol:</b> ${data.symbol || '-'}\n<b>TF:</b> ${data.tf || '-'}\n<b>Side:</b> ${formatSide(data.side)}\n<b>Price:</b> ${formatNumber(data.openPrice || data.price)}\n<b>TP:</b> ${formatNumber(data.targetPrice)}\n<b>SL:</b> ${formatNumber(data.stopLoss)}\n<b>Lot:</b> ${formatNumber(data.lotSize)}\n<b>Time:</b> ${formatDate(data.time)}`;
+            return `📊 <b>New Signal</b>\n━━━━━━━━━━━━━━\n<b>Symbol:</b> <code>${data.symbol || '-'}</code>\n<b>TF:</b> <code>${data.tf || '-'}</code>\n<b>Side:</b> ${formatSide(data.side)}\n<b>Price:</b> <code>${formatNumber(data.openPrice || data.price)}</code>\n<b>TP:</b> <code>${formatNumber(data.targetPrice)}</code>\n<b>SL:</b> <code>${formatNumber(data.stopLoss)}</code>\n<b>Lot:</b> <code>${formatNumber(data.lotSize)}</code>\n🕒 <b>Time:</b> ${formatDate(data.time)}`;
         case 'UPDATE':
-            return `🔄 <b>Trade Update</b>\n<b>Symbol:</b> ${data.symbol || '-'}\n<b>Side:</b> ${formatSide(data.side)}\n<b>Unrealized P/L:</b> ${data.unrealized >= 0 ? '+' : ''}${formatNumber(data.unrealized)}\n<b>Time:</b> ${formatDate(data.time)}`;
+            return `🔄 <b>Trade Update</b>\n━━━━━━━━━━━━━━\n<b>Symbol:</b> <code>${data.symbol || '-'}</code>\n<b>Side:</b> ${formatSide(data.side)}\n<b>Unrealized P/L:</b> <b>${data.unrealized >= 0 ? '🟢 +' : '🔴 '}${formatNumber(data.unrealized)}</b>\n🕒 <b>Time:</b> ${formatDate(data.time)}`;
         case 'ERROR':
-            return `❌ <b>Server Crashed</b>\n<b>Error:</b> <i>${data.error || '-'}</i>\n<b>Time:</b> ${formatDate(data.time)}`;
+            return `❌ <b>Server Error</b>\n━━━━━━━━━━━━━━\n<b>Error:</b> <i>${data.error || '-'}</i>\n🕒 <b>Time:</b> ${formatDate(data.time)}`;
         case 'STOP':
-            return `⚠️ <b>Server Stopped</b>\n<b>Time:</b> ${formatDate(data.time)}`;
+            return `⚠️ <b>Server Stopped</b>\n🕒 <b>Time:</b> ${formatDate(data.time)}`;
         default:
             return '';
     }
@@ -250,34 +250,6 @@ app.get('/history', (req, res) => res.sendFile(__dirname + '/public/history.html
 server.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
     sendInitialTelegramLogs();
-    // --- Open trade on startup at current market price for each symbol ---
-    (async () => {
-        for (const symbol of symbols) {
-            const candles = await fetchCandles(symbol, '5m', 2);
-            const last = candles[candles.length - 1];
-            if (!last) continue;
-            const openPrice = last.close;
-            const atr = Math.abs(last.high - last.low) || 10;
-            const stopLoss = openPrice - atr;
-            const targetPrice = openPrice + atr;
-            const now = new Date();
-            const trade = {
-                id: Date.now() + Math.floor(Math.random() * 10000),
-                symbol,
-                tf: '5m',
-                time: now.toISOString(),
-                side: 'Buy',
-                openPrice,
-                targetPrice,
-                stopLoss,
-                unrealized: 0,
-                lotSize: defaultLot
-            };
-            openTrades[symbol].push(trade);
-            io.emit('tradeOpened', trade);
-            sendTelegramMessage(telegramMsg('OPEN', trade));
-        }
-    })();
 });
 
 // ---------------- EXIT HANDLER -----------------
