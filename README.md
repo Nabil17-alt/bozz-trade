@@ -1,4 +1,4 @@
-# 🚀 BOZZ TRADE — Automated Trading Signal Platform
+# 🚀 Automated Trading Signal Platform
 
 > **Realtime, Multi-Timeframe, and Professional Trading Signal System for Crypto & Gold**
 

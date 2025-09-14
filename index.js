@@ -15,7 +15,7 @@ const server = http.createServer(app);
 const io = new Server(server);
 const PORT = process.env.PORT || 3000;
 
-// ---------------- CONFIG -----------------
+// ================== CONFIGURATION ==================
 const TIMEFRAMES = ['5m', '15m', '1h', '4h'];
 const symbols = ['BTCUSDT', 'XAUUSDT'];
 const candlesMap = {};
@@ -24,11 +24,14 @@ const tradeHistory = { BTCUSDT: [], XAUUSDT: [] };
 const openTrades = { BTCUSDT: [], XAUUSDT: [] };
 const defaultLot = 0.01; // Default lot
 
-// ---------------- Telegram -----------------
+// ================== TELEGRAM NOTIFICATION ==================
 function sendTelegramMessage(text, type = '') {
     const token = process.env.TELEGRAM_TOKEN;
     const chatId = process.env.TELEGRAM_CHAT_ID;
-    if (!token || !chatId) return console.error("Telegram token/chat_id missing");
+    if (!token || !chatId) {
+        console.error("Telegram token/chat_id missing");
+        return;
+    }
     axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
         chat_id: chatId,
         text,
@@ -39,7 +42,8 @@ function sendTelegramMessage(text, type = '') {
 }
 
 function formatNumber(n) {
-    return n === undefined || n === null ? '-' : Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    if (n === undefined || n === null) return '-';
+    return Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function formatDate(dt) {
@@ -85,7 +89,7 @@ function telegramMsg(type, data = {}) {
     }
 }
 
-// ---------------- INITIAL LOGS -----------------
+// ================== INITIAL TELEGRAM LOGS ==================
 function sendInitialTelegramLogs() {
     sendTelegramMessage(telegramMsg('STARTUP', { port: PORT, time: new Date() }));
     // Open trades
@@ -103,7 +107,7 @@ function sendInitialTelegramLogs() {
     });
 }
 
-// ---------------- SOCKET.IO -----------------
+// ================== SOCKET.IO EVENTS ==================
 io.on('connection', (socket) => {
     console.log('Client connected');
 
@@ -116,7 +120,7 @@ io.on('connection', (socket) => {
     });
 });
 
-// ---------------- FETCH CANDLES -----------------
+// ================== BINANCE CANDLE FETCHER ==================
 async function fetchCandles(symbol, interval = '1h', limit = 200) {
     try {
         const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
@@ -135,7 +139,7 @@ async function fetchCandles(symbol, interval = '1h', limit = 200) {
     }
 }
 
-// ---------------- TRADE HANDLER -----------------
+// ================== TRADE HANDLER ==================
 function handleTrade(symbol, latestSignal, atr) {
     if (!latestSignal) return;
 
@@ -163,7 +167,7 @@ function handleTrade(symbol, latestSignal, atr) {
     sendTelegramMessage(telegramMsg('OPEN', trade));
 }
 
-// ---------------- MULTI-TF PROCESSOR -----------------
+// ================== MULTI-TIMEFRAME PROCESSOR ==================
 async function processMultiTF(symbol) {
     candlesMap[symbol] = {};
     for (const tf of TIMEFRAMES) {
@@ -242,26 +246,26 @@ async function processMultiTF(symbol) {
     }
 }
 
-// ---------------- LIVE DEMO -----------------
+// ================== LIVE DEMO STARTER ==================
 function startLiveDemo() {
     symbols.forEach(s => processMultiTF(s));
     setInterval(() => symbols.forEach(s => processMultiTF(s)), 60 * 1000);
 }
 
-// ---------------- ROUTES -----------------
+// ================== EXPRESS ROUTES ==================
 app.get('/', (req, res) => res.json({ ok: true, msg: 'BOZZ TRADE Live Demo' }));
 app.get('/start-live', (req, res) => { startLiveDemo(); res.json({ ok: true, msg: 'Live demo started' }); });
 
 app.get('/api/history/:symbol', (req, res) => { const s = req.params.symbol.toUpperCase(); res.json(tradeHistory[s] || []); });
 app.get('/history', (req, res) => res.sendFile(__dirname + '/public/history.html'));
 
-// ---------------- SERVER -----------------
+// ================== SERVER STARTUP ==================
 server.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
     sendInitialTelegramLogs();
 });
 
-// ---------------- EXIT HANDLER -----------------
+// ================== EXIT HANDLER ==================
 function handleExit(err) {
     const now = new Date();
     if (err) {
